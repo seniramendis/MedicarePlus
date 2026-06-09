@@ -35,9 +35,7 @@ $stats = [
 ];
 
 // Unread messages count for admin
-$unreadMsgs = 0;
-$res = $conn->query("SELECT COUNT(*) FROM messages WHERE receiver_id = {$user['id']} AND is_read = 0");
-if ($res) $unreadMsgs = (int)$res->fetch_row()[0];
+$unreadMsgs = get_unread_messages($user['id']);
 
 // Fetch Recent Users for Management
 $recentUsers = [];

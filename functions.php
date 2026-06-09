@@ -45,6 +45,16 @@ function csrf_verify(string $token): bool {
 
 // ── User functions ─────────────────────────────────────────
 
+function fetch_user_by_id(int $id): ?array {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare('SELECT id, first_name, last_name, email, role FROM users WHERE id = ? LIMIT 1');
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
 function fetch_user_by_email(string $email): ?array {
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
@@ -243,6 +253,147 @@ function create_or_update_payment(int $appointmentId, float $amount, string $met
     $ok = $stmt->execute();
     $stmt->close();
     return $ok;
+}
+
+// ── Messaging (modelled on MediCare_Plus reference) ────────
+
+// Fetch all users available to message (for recipient dropdown)
+function fetch_message_recipients(int $currentUserId, string $role): array {
+    $conn = get_db_connection();
+    if ($role === 'patient') {
+        // Patients can message their appointed doctors + any admin
+        $stmt = $conn->prepare("
+            SELECT DISTINCT u.id, u.first_name, u.last_name, u.role,
+                   d.specialization AS sub_text
+            FROM users u
+            JOIN doctors d ON u.id = d.user_id
+            JOIN appointments a ON d.id = a.doctor_id
+            JOIN patients p ON a.patient_id = p.id
+            WHERE p.user_id = ?
+            UNION
+            SELECT id, first_name, last_name, role, 'System Admin' AS sub_text
+            FROM users WHERE role = 'admin'
+        ");
+        $stmt->bind_param('i', $currentUserId);
+    } elseif ($role === 'doctor') {
+        // Doctors can message their patients + any admin
+        $stmt = $conn->prepare("
+            SELECT DISTINCT u.id, u.first_name, u.last_name, u.role,
+                   COALESCE(u.phone, 'Patient') AS sub_text
+            FROM users u
+            JOIN patients p ON u.id = p.user_id
+            JOIN appointments a ON p.id = a.patient_id
+            JOIN doctors d ON a.doctor_id = d.id
+            WHERE d.user_id = ?
+            UNION
+            SELECT id, first_name, last_name, role, 'System Admin' AS sub_text
+            FROM users WHERE role = 'admin'
+        ");
+        $stmt->bind_param('i', $currentUserId);
+    } else {
+        // Admin can message everyone
+        $stmt = $conn->prepare("
+            SELECT id, first_name, last_name, role, role AS sub_text
+            FROM users WHERE id != ?
+            ORDER BY role, first_name
+        ");
+        $stmt->bind_param('i', $currentUserId);
+    }
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+// Send a message — returns true on success
+function send_message(int $senderId, int $receiverId, string $body): bool {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare('INSERT INTO messages (sender_id, receiver_id, message, is_read, created_at) VALUES (?, ?, ?, 0, NOW())');
+    $stmt->bind_param('iis', $senderId, $receiverId, $body);
+    $result = $stmt->execute();
+    $stmt->close();
+    if ($result) {
+        // Notify the receiver
+        $userStmt = $conn->prepare('SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1');
+        $userStmt->bind_param('i', $senderId);
+        $userStmt->execute();
+        $sender = $userStmt->get_result()->fetch_assoc();
+        $userStmt->close();
+        if ($sender) {
+            add_notification($receiverId, "New message from {$sender['first_name']} {$sender['last_name']}.");
+        }
+    }
+    return $result;
+}
+
+// Fetch inbox: one row per conversation partner, most recent first
+function fetch_inbox(int $userId): array {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare("
+        SELECT u.id, u.first_name, u.last_name, u.role,
+               latest.last_message, latest.last_at,
+               (SELECT COUNT(*) FROM messages
+                WHERE sender_id = u.id AND receiver_id = ? AND is_read = 0) AS unread
+        FROM users u
+        JOIN (
+            SELECT
+                CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END AS partner_id,
+                message AS last_message,
+                created_at AS last_at
+            FROM messages
+            WHERE sender_id = ? OR receiver_id = ?
+            ORDER BY created_at DESC
+        ) AS latest ON u.id = latest.partner_id
+        WHERE u.id != ?
+        GROUP BY u.id
+        ORDER BY latest.last_at DESC
+    ");
+    $stmt->bind_param('iiiii', $userId, $userId, $userId, $userId, $userId);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+// Fetch full conversation between two users, oldest first
+function fetch_conversation(int $userId, int $otherId): array {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare("
+        SELECT m.id, m.sender_id, m.receiver_id, m.message AS body,
+               m.is_read, m.created_at AS sent_at,
+               u.first_name AS sender_first, u.last_name AS sender_last
+        FROM messages m
+        JOIN users u ON u.id = m.sender_id
+        WHERE (m.sender_id = ? AND m.receiver_id = ?)
+           OR (m.sender_id = ? AND m.receiver_id = ?)
+        ORDER BY m.created_at ASC
+    ");
+    $stmt->bind_param('iiii', $userId, $otherId, $otherId, $userId);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    return $rows;
+}
+
+// Mark all messages from a sender to current user as read
+function mark_conversation_read(int $readerId, int $senderId): void {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare('UPDATE messages SET is_read = 1 WHERE receiver_id = ? AND sender_id = ? AND is_read = 0');
+    $stmt->bind_param('ii', $readerId, $senderId);
+    $stmt->execute();
+    $stmt->close();
+}
+
+// Count unread messages (used for nav badge on dashboards)
+function get_unread_messages(int $userId): int {
+    $conn = get_db_connection();
+    $stmt = $conn->prepare('SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND is_read = 0');
+    $stmt->bind_param('i', $userId);
+    $stmt->execute();
+    $stmt->bind_result($count);
+    $stmt->fetch();
+    $stmt->close();
+    return (int) $count;
 }
 
 // ── Notifications ──────────────────────────────────────────

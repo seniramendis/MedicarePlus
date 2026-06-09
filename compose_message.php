@@ -1,132 +1,109 @@
 <?php
 require_once 'functions.php';
+require_role('patient', 'doctor', 'admin');
 
-$user = get_logged_in_user();
-if (!$user) {
-    header('Location: Login.php');
-    exit;
-}
-
-$role = $_SESSION['role'];
+$user      = get_logged_in_user();
+$role      = $_SESSION['role'];
 $pageTitle = 'Compose Message — Medicare Plus';
-$conn = get_db_connection();
-$msgAlert = '';
+$errors    = [];
+$success   = '';
 
-// Form Submission Logic
+// Pre-select recipient if ?to= is in the URL (e.g. from "Reply" links)
+$preselect = filter_input(INPUT_GET, 'to', FILTER_VALIDATE_INT) ?: 0;
+
+// Fetch recipients using the same centralised function
+$recipients = fetch_message_recipients($user['id'], $role);
+
+// ── Handle form submission ─────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (csrf_verify($_POST['csrf_token'] ?? '')) {
-        $receiverId = (int)$_POST['receiver_id'];
-        $messageBody = trim($_POST['message_body']);
+    // CSRF check (exactly like the reference project)
+    $submitted = filter_input(INPUT_POST, 'csrf_token', FILTER_UNSAFE_RAW) ?? '';
+    if (!hash_equals(csrf_token(), $submitted)) {
+        http_response_code(403);
+        die('Invalid CSRF token. Please go back and try again.');
+    }
 
-        if (!empty($messageBody) && $receiverId > 0) {
-            $stmt = $conn->prepare("INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)");
-            $stmt->bind_param('iis', $user['id'], $receiverId, $messageBody);
-            if ($stmt->execute()) {
-                $stmt->close();
-                // Redirect immediately after sending
-                header("Location: chat_engine.php?chat_with=" . $receiverId);
-                exit;
-            } else {
-                $msgAlert = "Message failed to send. Please try again.";
-            }
-            $stmt->close();
+    $receiverId = filter_input(INPUT_POST, 'receiver_id', FILTER_VALIDATE_INT);
+    $body       = trim(filter_input(INPUT_POST, 'message_body', FILTER_DEFAULT) ?: '');
+
+    if (!$receiverId) $errors[] = 'Please select a recipient.';
+    if ($body === '')  $errors[] = 'Message cannot be empty.';
+
+    if (empty($errors)) {
+        if (send_message($user['id'], $receiverId, $body)) {
+            // Redirect straight to the conversation thread
+            header('Location: chat_engine.php?view_user=' . $receiverId);
+            exit;
+        } else {
+            $errors[] = 'Could not send message. Please try again.';
         }
     }
 }
 
-// Fetch Allowed Recipients (Includes Admins)
-$recipients = [];
-if ($role === 'patient') {
-    $stmt = $conn->prepare("
-        SELECT DISTINCT u.id, u.first_name, u.last_name, d.specialization as sub_text
-        FROM users u
-        JOIN doctors d ON u.id = d.user_id
-        JOIN appointments a ON d.id = a.doctor_id
-        JOIN patients p ON a.patient_id = p.id
-        WHERE p.user_id = ?
-        UNION
-        SELECT id, first_name, last_name, 'System Admin' as sub_text
-        FROM users WHERE role = 'admin'
-    ");
-    $stmt->bind_param('i', $user['id']);
-} elseif ($role === 'doctor') {
-    $stmt = $conn->prepare("
-        SELECT DISTINCT u.id, u.first_name, u.last_name, u.phone as sub_text
-        FROM users u
-        JOIN patients p ON u.id = p.user_id
-        JOIN appointments a ON p.id = a.patient_id
-        JOIN doctors d ON a.doctor_id = d.id
-        WHERE d.user_id = ?
-        UNION
-        SELECT id, first_name, last_name, 'System Admin' as sub_text
-        FROM users WHERE role = 'admin'
-    ");
-    $stmt->bind_param('i', $user['id']);
-} else {
-    $stmt = $conn->prepare("SELECT id, first_name, last_name, role as sub_text FROM users WHERE id != ?");
-    $stmt->bind_param('i', $user['id']);
-}
-
-$stmt->execute();
-$res = $stmt->get_result();
-while ($row = $res->fetch_assoc()) {
-    $recipients[] = $row;
-}
-$stmt->close();
-
 include 'header.php';
 ?>
-
 <div class="dash-layout">
-    <aside class="dash-sidebar">
-        <div class="dash-user">
-            <div class="dash-avatar"><?= strtoupper(substr($user['first_name'], 0, 1) . substr($user['last_name'], 0, 1)) ?></div>
-            <h4><?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h4>
-            <span><?= ucfirst($role) ?> Portal</span>
-        </div>
-        <nav class="dash-nav">
-            <a href="dashboard_<?= $role === 'admin' ? 'admin' : $role ?>.php"><i class="fas fa-home"></i> Dashboard</a>
-            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
-            <a href="compose_message.php" class="active"><i class="fas fa-paper-plane"></i> Compose Message</a>
-            <div class="dash-nav-divider"></div>
-            <a href="logout.php" style="color: #dc3545;"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
-        </nav>
-    </aside>
+  <aside class="dash-sidebar">
+    <div class="dash-user">
+      <div class="dash-avatar"><?= strtoupper(substr($user['first_name'],0,1).substr($user['last_name'],0,1)) ?></div>
+      <h4><?= htmlspecialchars($user['first_name'].' '.$user['last_name']) ?></h4>
+      <span><?= ucfirst($role) ?> Portal</span>
+    </div>
+    <nav class="dash-nav">
+      <a href="dashboard_<?= $role==='admin'?'admin':$role ?>.php"><i class="fas fa-home"></i> Dashboard</a>
+      <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
+      <a href="compose_message.php" class="active"><i class="fas fa-paper-plane"></i> Compose</a>
+      <div class="dash-nav-divider"></div>
+      <a href="logout.php" style="color:#dc3545"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
+    </nav>
+  </aside>
 
-    <main class="dash-main">
-        <div class="dash-header">
-            <div>
-                <h1>Compose Secure Message</h1>
-            </div>
-            <a href="chat_engine.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Inbox</a>
-        </div>
+  <main class="dash-main">
+    <div class="dash-header">
+      <div><h1>Compose Secure Message</h1></div>
+      <a href="chat_engine.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Inbox</a>
+    </div>
 
-        <?php if ($msgAlert): ?><div class="card" style="padding: 15px; border-left: 4px solid #dc3545;"><strong><?= htmlspecialchars($msgAlert) ?></strong></div><?php endif; ?>
+    <?php if (!empty($errors)): ?>
+      <div class="card" style="padding:14px 18px;margin-bottom:18px;border-left:4px solid #dc3545;">
+        <?php foreach ($errors as $e): ?>
+          <p style="margin:4px 0;color:#dc3545;"><i class="fas fa-exclamation-circle"></i> <?= htmlspecialchars($e) ?></p>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
 
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">New Message</h2>
-            </div>
-            <div style="padding: 25px;">
-                <form method="POST" action="compose_message.php">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                    <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Select Recipient</label>
-                        <select name="receiver_id" class="form-control" required style="width: 100%; padding: 12px;">
-                            <option value="">-- Choose a Contact --</option>
-                            <?php foreach ($recipients as $r): ?>
-                                <option value="<?= $r['id'] ?>"><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?> (<?= htmlspecialchars($r['sub_text']) ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Secure Message</label>
-                        <textarea name="message_body" class="form-control" rows="8" required style="width: 100%; padding: 15px;"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-lock"></i> Send Secure Message</button>
-                </form>
-            </div>
-        </div>
-    </main>
+    <div class="card">
+      <div class="card-header"><h2 class="card-title">New Message</h2></div>
+      <div style="padding:24px;">
+        <form method="POST" action="compose_message.php">
+          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+
+          <div style="margin-bottom:18px;">
+            <label style="display:block;margin-bottom:7px;font-weight:600;">Recipient</label>
+            <select name="receiver_id" required class="form-control" style="width:100%;padding:11px;">
+              <option value="">— Select recipient —</option>
+              <?php foreach ($recipients as $r): ?>
+                <option value="<?= (int)$r['id'] ?>"
+                  <?= ($preselect === (int)$r['id'] || (isset($_POST['receiver_id']) && (int)$_POST['receiver_id'] === (int)$r['id'])) ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($r['first_name'].' '.$r['last_name'].' ('.ucfirst($r['role']).')') ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <div style="margin-bottom:18px;">
+            <label style="display:block;margin-bottom:7px;font-weight:600;">Message</label>
+            <textarea name="message_body" rows="7" required class="form-control"
+              style="width:100%;padding:12px;"
+              placeholder="Write your secure message here…"><?= htmlspecialchars($_POST['message_body'] ?? '') ?></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-lock"></i> Send Secure Message
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
 </div>
 <?php include 'footer.php'; ?>

@@ -26,7 +26,7 @@ foreach ($allAppointments as $appt) {
 }
 
 // Notifications logic
-$unreadCount = get_unread_count($user['id']);
+$unreadCount = get_unread_messages($user['id']);
 $notifications = fetch_notifications($user['id'], 5);
 
 include 'header.php';

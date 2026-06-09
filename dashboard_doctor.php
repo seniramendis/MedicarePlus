@@ -52,7 +52,7 @@ while ($row = $res->fetch_assoc()) {
 }
 $stmt->close();
 
-$unreadCount = get_unread_count($user['id']);
+$unreadCount = get_unread_messages($user['id']);
 
 include 'header.php';
 ?>
