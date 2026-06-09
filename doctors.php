@@ -1,392 +1,888 @@
 <?php
-$pageTitle = 'Find a Doctor — Medicare Plus';
-require_once 'functions.php';
-$allDoctors = fetch_all_doctors();
-
-// Filter by specialisation or city from URL params
-$filterSpec = trim(filter_input(INPUT_GET, 'spec', FILTER_SANITIZE_SPECIAL_CHARS) ?? '');
-$filterCity = trim(filter_input(INPUT_GET, 'city', FILTER_SANITIZE_SPECIAL_CHARS) ?? '');
-
+// doctors.php — Medicare Plus
+// Enhanced: rich profile cards, specialty filter, search, smooth animations
+session_start();
+require_once 'db_connect.php';
 include 'header.php';
+
+// ── Filters & pagination ──────────────────────────────
+$specFilter = trim($_GET['spec'] ?? '');
+$search     = trim($_GET['q'] ?? '');
+$sortBy     = $_GET['sort'] ?? 'rating';
+$page       = max(1, (int)($_GET['page'] ?? 1));
+$perPage    = 12;
+$offset     = ($page - 1) * $perPage;
+
+$allowed_sort = ['rating' => 'd.rating DESC', 'fee_asc' => 'd.consultation_fee ASC', 'fee_desc' => 'd.consultation_fee DESC', 'experience' => 'd.experience_years DESC'];
+$orderBy = $allowed_sort[$sortBy] ?? 'd.rating DESC';
+
+$whereArr = ['1=1'];
+$params   = [];
+$types    = '';
+if ($specFilter) {
+    $whereArr[] = 'd.specialization = ?';
+    $params[] = $specFilter;
+    $types .= 's';
+}
+if ($search) {
+    $whereArr[] = "(u.first_name LIKE ? OR u.last_name LIKE ? OR d.specialization LIKE ? OR d.hospital LIKE ?)";
+    $params = array_merge($params, ["%$search%", "%$search%", "%$search%", "%$search%"]);
+    $types .= 'ssss';
+}
+$where = 'WHERE ' . implode(' AND ', $whereArr);
+
+// Count
+$countSql = "SELECT COUNT(*) AS total FROM doctors d JOIN users u ON u.id = d.user_id $where";
+$stmt = $conn->prepare($countSql);
+if ($params) $stmt->bind_param($types, ...$params);
+$stmt->execute();
+$total = $stmt->get_result()->fetch_assoc()['total'] ?? 0;
+$totalPages = max(1, (int)ceil($total / $perPage));
+
+// Doctors
+$sql = "SELECT d.id, u.first_name, u.last_name, d.specialization,
+               d.consultation_fee, d.experience_years, d.rating,
+               d.hospital, d.location, d.bio, d.qualification, d.availability
+        FROM doctors d
+        JOIN users u ON u.id = d.user_id
+        $where
+        ORDER BY $orderBy
+        LIMIT ? OFFSET ?";
+$stmt = $conn->prepare($sql);
+$allP = [...$params, $perPage, $offset];
+$allT = $types . 'ii';
+$stmt->bind_param($allT, ...$allP);
+$stmt->execute();
+$doctors = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+// Specialties for filter
+$specRes = $conn->query("SELECT d.specialization, COUNT(*) AS cnt FROM doctors d JOIN users u ON u.id = d.user_id GROUP BY d.specialization ORDER BY cnt DESC");
+$specialties = $specRes ? $specRes->fetch_all(MYSQLI_ASSOC) : [];
+
+// Colour map
+$specColours = [
+    'Cardiology'           => ['#c0392b', '#fdecea'],
+    'Neurology'            => ['#6c3483', '#f3e8f9'],
+    'Paediatrics'          => ['#1565c0', '#e3f0fc'],
+    'Pediatrics'           => ['#1565c0', '#e3f0fc'],
+    'Dermatology'          => ['#b7950b', '#fef9e7'],
+    'Orthopaedics'         => ['#1a5276', '#eaf2fc'],
+    'Orthopedics'          => ['#1a5276', '#eaf2fc'],
+    'General Practitioner' => ['#1e8449', '#e9f7ef'],
+    'Gynaecology'          => ['#b03a8a', '#fce4f4'],
+    'ENT'                  => ['#ca6f1e', '#fef3e2'],
+    'Endocrinology'        => ['#1abc9c', '#e8faf5'],
+    'Pulmonology'          => ['#2980b9', '#eaf4fb'],
+    'Ophthalmology'        => ['#0d7373', '#e0f5f5'],
+    'Oncology'             => ['#7d3c98', '#f4ecfa'],
+];
+
+// Unsplash doctor photos by speciality (gender-neutral, professional)
+$specPhotos = [
+    'Cardiology'     => ['photo-1612349317150-e413f6a5b16d', 'photo-1559839734-2b71ea197ec2'],
+    'Neurology'      => ['photo-1537368910025-700350fe46c7', 'photo-1526256262350-7da7584cf5eb'],
+    'Paediatrics'    => ['photo-1594824476967-48c8b964273f', 'photo-1576091160550-2173dba999ef'],
+    'Dermatology'    => ['photo-1559839734-2b71ea197ec2', 'photo-1612349317150-e413f6a5b16d'],
+    'Orthopaedics'   => ['photo-1584467735871-8e548e28c0d9', 'photo-1530497610245-94d3c16cda28'],
+    'Gynaecology'    => ['photo-1594824476967-48c8b964273f', 'photo-1607990281513-2c110a25bd8c'],
+    'General Practitioner' => ['photo-1612349317150-e413f6a5b16d', 'photo-1537368910025-700350fe46c7'],
+    'ENT'            => ['photo-1559839734-2b71ea197ec2', 'photo-1526256262350-7da7584cf5eb'],
+    'Endocrinology'  => ['photo-1576091160550-2173dba999ef', 'photo-1594824476967-48c8b964273f'],
+    'Pulmonology'    => ['photo-1584467735871-8e548e28c0d9', 'photo-1612349317150-e413f6a5b16d'],
+    'Neurology'      => ['photo-1537368910025-700350fe46c7', 'photo-1559839734-2b71ea197ec2'],
+];
+$fallbackPhotos = [
+    'photo-1612349317150-e413f6a5b16d',
+    'photo-1537368910025-700350fe46c7',
+    'photo-1559839734-2b71ea197ec2',
+    'photo-1594824476967-48c8b964273f',
+    'photo-1576091160550-2173dba999ef',
+    'photo-1584467735871-8e548e28c0d9',
+];
+
+function getDoctorPhoto($spec, $docId, $specPhotos, $fallbackPhotos)
+{
+    $photos = $specPhotos[$spec] ?? $fallbackPhotos;
+    $slug   = $photos[$docId % count($photos)];
+    return "https://images.unsplash.com/{$slug}?w=300&h=300&q=80&auto=format&fit=crop&crop=face";
+}
 ?>
 
-<!-- ══════════════════════ PAGE HERO ════════════════════ -->
-<section style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 55%,var(--leaf) 100%);padding:72px 0 64px;position:relative;overflow:hidden;">
-    <div style="position:absolute;inset:0;background:radial-gradient(circle at 80% 20%,rgba(255,255,255,.06) 0%,transparent 50%),radial-gradient(circle at 10% 80%,rgba(0,0,0,.08) 0%,transparent 40%);pointer-events:none"></div>
-    <div class="container" style="position:relative">
-        <div style="max-width:620px">
-            <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:50px;padding:5px 16px;font-size:.78rem;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.9);margin-bottom:20px">
-                <i class="fas fa-stethoscope"></i> Our Medical Team
-            </div>
-            <h1 style="font-family:var(--font-display);font-size:clamp(2rem,4.5vw,3rem);color:#fff;margin:0 0 14px;line-height:1.15">
-                Find Your <span style="color:var(--accent)">Specialist</span>
-            </h1>
-            <p style="color:rgba(255,255,255,.75);font-size:1.05rem;line-height:1.7;margin:0 0 28px">
-                Browse Sri Lanka's top-rated doctors by speciality or location. All consultants are verified and available for online booking.
-            </p>
-            <div style="display:flex;flex-wrap:wrap;gap:10px">
-                <?php
-                $chips = [
-                    ['fas fa-user-doctor', count($allDoctors) . ' Specialists'],
-                    ['fas fa-hospital-alt', '9 Departments'],
-                    ['fas fa-star', 'Verified &amp; Rated'],
-                    ['fas fa-calendar-check', 'Online Booking'],
-                ];
-                foreach ($chips as $ch): ?>
-                <span style="display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:.83rem;font-weight:500;padding:7px 16px;border-radius:30px">
-                    <i class="<?= $ch[0] ?>" style="color:var(--accent)"></i> <?= $ch[1] ?>
-                </span>
-                <?php endforeach; ?>
-            </div>
-        </div>
+<!-- ═══════════════════════════════════════════════════════
+     HERO
+═══════════════════════════════════════════════════════════ -->
+<section class="doc-hero">
+    <div class="doc-hero__bg"
+        style="background-image:url('https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=1600&q=80&auto=format&fit=crop')">
+    </div>
+    <div class="doc-hero__overlay"></div>
+    <div class="container doc-hero__content">
+        <span class="mp-eyebrow mp-eyebrow--light mp-reveal" data-delay="0">Our Team</span>
+        <h1 class="doc-hero__title mp-reveal" data-delay="80">Find Your Specialist</h1>
+        <p class="doc-hero__sub mp-reveal" data-delay="160">
+            <?= $total ?> board-certified doctors across <?= count($specialties) ?> specialties.
+            Search, filter, and book — all in one place.
+        </p>
+
+        <!-- Inline search -->
+        <form class="doc-hero__search mp-reveal" data-delay="240" method="GET" action="doctors.php">
+            <?php if ($specFilter): ?>
+                <input type="hidden" name="spec" value="<?= htmlspecialchars($specFilter) ?>">
+            <?php endif; ?>
+            <i class="fas fa-search"></i>
+            <input type="search" name="q" placeholder="Search by name, specialty, or hospital…" value="<?= htmlspecialchars($search) ?>">
+            <?php if ($search): ?>
+                <a href="doctors.php<?= $specFilter ? '?spec=' . urlencode($specFilter) : '' ?>" class="doc-hero__search-clear" title="Clear search">
+                    <i class="fas fa-times"></i>
+                </a>
+            <?php endif; ?>
+            <button type="submit" class="btn btn-accent">Search</button>
+        </form>
     </div>
 </section>
 
-<!-- ══════════════════════ SEARCH BAR ═══════════════════ -->
-<div style="background:var(--white);border-bottom:1px solid var(--border);padding:24px 0;position:sticky;top:68px;z-index:99;box-shadow:var(--shadow-sm)">
-    <div class="container">
-        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-            <!-- Name search -->
-            <div style="position:relative;flex:1;min-width:220px">
-                <i class="fas fa-search" style="position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.9rem"></i>
-                <input type="text" id="searchName" placeholder="Search by doctor's name…"
-                    style="width:100%;height:48px;padding:0 16px 0 42px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:var(--font-body);font-size:.93rem;background:var(--sand);transition:border .2s,box-shadow .2s;outline:none"
-                    onfocus="this.style.borderColor='var(--teal)';this.style.boxShadow='0 0 0 3px rgba(13,115,119,.1)'"
-                    onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'"
-                    value="<?= htmlspecialchars(filter_input(INPUT_GET,'q',FILTER_SANITIZE_SPECIAL_CHARS)??'') ?>">
-            </div>
-            <!-- Specialty filter -->
-            <select id="filterSpec" style="height:48px;padding:0 36px 0 14px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:var(--font-body);font-size:.9rem;color:var(--dark);background:var(--sand) url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%237a9394%22%3E%3Cpath d=%22M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z%22/%3E%3C/svg%3E') no-repeat right 10px center/16px;appearance:none;cursor:pointer;min-width:200px">
-                <option value="all">All Specialities</option>
-                <?php
-                $specs = ['Cardiology','Dermatology','Endocrinology','ENT','General Practitioner','Gynaecology','Neurology','Orthopaedics','Paediatrics','Pulmonology'];
-                foreach ($specs as $s):
-                    $sel = ($filterSpec === $s) ? 'selected' : '';
-                ?>
-                <option value="<?= htmlspecialchars($s) ?>" <?= $sel ?>><?= $s ?></option>
-                <?php endforeach; ?>
-            </select>
-            <!-- City filter -->
-            <select id="filterCity" style="height:48px;padding:0 36px 0 14px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:var(--font-body);font-size:.9rem;color:var(--dark);background:var(--sand) url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%237a9394%22%3E%3Cpath d=%22M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z%22/%3E%3C/svg%3E') no-repeat right 10px center/16px;appearance:none;cursor:pointer;min-width:160px">
-                <option value="all">All Cities</option>
-                <?php
-                $cities = ['Colombo','Kandy','Galle','Negombo','Matara','Kurunegala','Jaffna','Trincomalee'];
-                foreach ($cities as $c):
-                    $sel = ($filterCity === $c) ? 'selected' : '';
-                ?>
-                <option value="<?= htmlspecialchars($c) ?>" <?= $sel ?>><?= $c ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
+<!-- ═══════════════════════════════════════════════════════
+     SPECIALTY TABS
+═══════════════════════════════════════════════════════════ -->
+<div class="doc-spec-bar">
+    <div class="container doc-spec-bar__inner">
+        <a href="doctors.php<?= $search ? '?q=' . urlencode($search) : '' ?>"
+            class="doc-spec-pill <?= !$specFilter ? 'is-active' : '' ?>">
+            All
+        </a>
+        <?php foreach ($specialties as $sp):
+            $spColour = $specColours[$sp['specialization']] ?? ['#0d7373', '#e0f5f5'];
+            $spQ = http_build_query(array_filter(['spec' => $sp['specialization'], 'q' => $search]));
+        ?>
+            <a href="doctors.php?<?= $spQ ?>"
+                class="doc-spec-pill <?= $specFilter === $sp['specialization'] ? 'is-active' : '' ?>"
+                style="--pill-color:<?= $spColour[0] ?>;--pill-bg:<?= $spColour[1] ?>">
+                <?= htmlspecialchars($sp['specialization']) ?>
+                <span><?= (int)$sp['cnt'] ?></span>
+            </a>
+        <?php endforeach; ?>
     </div>
 </div>
 
-<!-- Specialty quick-filter pills -->
-<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 0">
+<!-- ═══════════════════════════════════════════════════════
+     RESULTS TOOLBAR + GRID
+═══════════════════════════════════════════════════════════ -->
+<section class="mp-section mp-section--light">
     <div class="container">
-        <div style="display:flex;flex-wrap:wrap;gap:8px" id="pillRow">
-            <?php
-            $pills = [
-                ['all',                 'fas fa-th-large',     'All Doctors'],
-                ['Cardiology',          'fas fa-heartbeat',    'Cardiology'],
-                ['Paediatrics',         'fas fa-baby',         'Paediatrics'],
-                ['Orthopaedics',        'fas fa-bone',         'Orthopaedics'],
-                ['Dermatology',         'fas fa-leaf',         'Dermatology'],
-                ['Neurology',           'fas fa-brain',        'Neurology'],
-                ['General Practitioner','fas fa-stethoscope',  'General'],
-                ['Gynaecology',         'fas fa-venus',        'Gynaecology'],
-                ['ENT',                 'fas fa-ear-listen',   'ENT'],
-                ['Pulmonology',         'fas fa-lungs',        'Pulmonology'],
-            ];
-            foreach ($pills as [$val, $ico, $label]):
-                $active = ($filterSpec === $val || ($val === 'all' && !$filterSpec)) ? 'background:rgba(13,115,119,.1);border-color:var(--teal);color:var(--teal)' : 'background:var(--white);border-color:var(--border);color:var(--muted)';
-            ?>
-            <button class="spec-pill-btn" data-spec="<?= $val ?>"
-                style="display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:30px;border:1.5px solid;font-family:var(--font-body);font-size:.82rem;font-weight:500;cursor:pointer;transition:all .2s;white-space:nowrap;<?= $active ?>">
-                <i class="<?= $ico ?>"></i> <?= $label ?>
-            </button>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</div>
 
-<!-- ══════════════════════ DOCTOR GRID ══════════════════ -->
-<section class="section">
-    <div class="container">
-        <!-- Results meta -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;flex-wrap:wrap;gap:12px">
-            <p style="font-size:.9rem;color:var(--muted)">
-                Showing <strong id="resultCount" style="color:var(--dark)">0</strong> doctors
+        <!-- Toolbar -->
+        <div class="doc-toolbar mp-reveal" data-delay="0">
+            <p class="doc-toolbar__count">
+                <?php if ($specFilter || $search): ?>
+                    Showing <strong><?= $total ?></strong> result<?= $total !== 1 ? 's' : '' ?>
+                    <?php if ($specFilter): ?> in <strong><?= htmlspecialchars($specFilter) ?></strong><?php endif; ?>
+                    <?php if ($search): ?> for "<strong><?= htmlspecialchars($search) ?></strong>"<?php endif; ?>
+                    <?php else: ?>
+                        <strong><?= $total ?></strong> specialist<?= $total !== 1 ? 's' : '' ?> available
+                    <?php endif; ?>
             </p>
-            <select id="sortSelect" style="height:38px;padding:0 32px 0 12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--font-body);font-size:.86rem;color:var(--dark);background:var(--white) url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%237a9394%22%3E%3Cpath d=%22M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z%22/%3E%3C/svg%3E') no-repeat right 8px center/16px;appearance:none;cursor:pointer">
-                <option value="default">Sort: Default</option>
-                <option value="name">Sort: Name A–Z</option>
-                <option value="rating">Sort: Highest Rated</option>
-                <option value="fee_asc">Sort: Fee Low–High</option>
-            </select>
+            <form class="doc-toolbar__sort" method="GET" id="sortForm">
+                <?php if ($specFilter): ?><input type="hidden" name="spec" value="<?= htmlspecialchars($specFilter) ?>"><?php endif; ?>
+                <?php if ($search): ?><input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>"><?php endif; ?>
+                <label for="sortSelect"><i class="fas fa-sort"></i> Sort:</label>
+                <select name="sort" id="sortSelect" onchange="document.getElementById('sortForm').submit()">
+                    <option value="rating" <?= $sortBy === 'rating'     ? 'selected' : '' ?>>Top Rated</option>
+                    <option value="experience" <?= $sortBy === 'experience' ? 'selected' : '' ?>>Most Experienced</option>
+                    <option value="fee_asc" <?= $sortBy === 'fee_asc'    ? 'selected' : '' ?>>Lowest Fee</option>
+                    <option value="fee_desc" <?= $sortBy === 'fee_desc'   ? 'selected' : '' ?>>Highest Fee</option>
+                </select>
+            </form>
         </div>
 
-        <!-- Cards grid -->
-        <div id="doctorGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:28px">
-            <?php
-            // Sri Lankan specialty colour map
-            $specColours = [
-                'Cardiology'           => ['#c0392b','#fdecea'],
-                'Neurology'            => ['#6c3483','#f3e8f9'],
-                'Paediatrics'          => ['#1565c0','#e3f0fc'],
-                'Pediatrics'           => ['#1565c0','#e3f0fc'],
-                'Dermatology'          => ['#b7950b','#fef9e7'],
-                'Orthopaedics'         => ['#1a5276','#eaf2fc'],
-                'Orthopedics'          => ['#1a5276','#eaf2fc'],
-                'General Practitioner' => ['#1e8449','#e9f7ef'],
-                'Gynaecology'          => ['#b03a8a','#fce4f4'],
-                'ENT'                  => ['#ca6f1e','#fef3e2'],
-                'Endocrinology'        => ['#1abc9c','#e8faf5'],
-                'Pulmonology'          => ['#2980b9','#eaf4fb'],
-            ];
+        <?php if (count($doctors) > 0): ?>
+            <!-- Doctor cards grid -->
+            <div class="doc-grid" id="doctorGrid">
+                <?php foreach ($doctors as $i => $doc):
+                    $spec     = htmlspecialchars($doc['specialization']);
+                    $name     = htmlspecialchars($doc['first_name'] . ' ' . $doc['last_name']);
+                    $initials = strtoupper(substr($doc['first_name'], 0, 1) . substr($doc['last_name'], 0, 1));
+                    $colours  = $specColours[$doc['specialization']] ?? ['#0d7373', '#e0f5f5'];
+                    $rating   = (float)$doc['rating'];
+                    $exp      = (int)$doc['experience_years'];
+                    $fee      = (float)$doc['consultation_fee'];
+                    $hospital = htmlspecialchars($doc['hospital'] ?? '');
+                    $location = htmlspecialchars($doc['location'] ?? 'Sri Lanka');
+                    $avail    = htmlspecialchars($doc['availability'] ?? 'Mon – Fri');
+                    $photoUrl = getDoctorPhoto($doc['specialization'], $doc['id'], $specPhotos, $fallbackPhotos);
+                    $bioSnip  = $doc['bio'] ? mb_strimwidth(strip_tags($doc['bio']), 0, 100, '…') : '';
+                ?>
+                    <article class="doc-card mp-reveal" data-delay="<?= ($i % 4) * 60 ?>">
 
-            if (!empty($allDoctors)):
-                foreach ($allDoctors as $doc):
-                    $id      = (int)$doc['id'];
-                    $spec    = htmlspecialchars($doc['specialization']);
-                    $city    = htmlspecialchars($doc['location'] ?? $doc['city'] ?? 'Sri Lanka');
-                    $hosp    = htmlspecialchars($doc['hospital'] ?? '');
-                    $rating  = (float)$doc['rating'];
-                    $fee     = (float)$doc['consultation_fee'];
-                    $exp     = (int)$doc['experience_years'];
-                    $name    = htmlspecialchars($doc['first_name'] . ' ' . $doc['last_name']);
-                    $initials = strtoupper(substr($doc['first_name'],0,1) . substr($doc['last_name'],0,1));
-                    $colours  = $specColours[$doc['specialization']] ?? ['var(--teal)','rgba(13,115,119,.08)'];
-                    $accentC  = $colours[0];
-                    $lightC   = $colours[1];
-            ?>
-            <div class="doc-card"
-                data-name="<?= strtolower($name) ?>"
-                data-spec="<?= htmlspecialchars($doc['specialization']) ?>"
-                data-city="<?= htmlspecialchars($doc['location'] ?? $doc['city'] ?? '') ?>"
-                data-rating="<?= $rating ?>"
-                data-fee="<?= $fee ?>"
-                style="background:var(--white);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s,box-shadow .25s;position:relative">
+                        <!-- Card top: photo + accent bar -->
+                        <div class="doc-card__header" style="--doc-color:<?= $colours[0] ?>;--doc-bg:<?= $colours[1] ?>">
+                            <div class="doc-card__photo-wrap">
+                                <!-- Real photo from Unsplash -->
+                                <img class="doc-card__photo"
+                                    src="<?= $photoUrl ?>"
+                                    alt="Dr. <?= $name ?>"
+                                    loading="lazy"
+                                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                                <!-- Fallback initials avatar -->
+                                <div class="doc-card__initials" style="display:none;background:<?= $colours[1] ?>;color:<?= $colours[0] ?>">
+                                    <?= $initials ?>
+                                </div>
+                            </div>
 
-                <!-- Specialty accent bar -->
-                <div style="height:4px;background:<?= $accentC ?>"></div>
-
-                <!-- Card top -->
-                <div style="padding:24px 24px 16px;display:flex;align-items:flex-start;gap:16px">
-                    <!-- Avatar -->
-                    <div style="width:64px;height:64px;border-radius:16px;background:<?= $lightC ?>;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:1.3rem;font-weight:700;color:<?= $accentC ?>;flex-shrink:0">
-                        <?= $initials ?>
-                    </div>
-                    <div style="flex:1;min-width:0">
-                        <h3 style="font-size:1rem;color:var(--dark);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dr. <?= $name ?></h3>
-                        <div style="display:inline-block;background:<?= $lightC ?>;color:<?= $accentC ?>;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><?= $spec ?></div>
-                        <?php if ($rating > 0): ?>
-                        <div style="display:flex;align-items:center;gap:5px;font-size:.82rem;color:var(--muted)">
-                            <span style="color:var(--accent)"><i class="fas fa-star" style="font-size:.7rem"></i></span>
-                            <strong style="color:var(--dark)"><?= number_format($rating,1) ?></strong> rating
+                            <!-- Speciality badge -->
+                            <div class="doc-card__spec-badge" style="background:<?= $colours[1] ?>;color:<?= $colours[0] ?>">
+                                <?= $spec ?>
+                            </div>
                         </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
 
-                <!-- Card details -->
-                <div style="padding:0 24px 16px;flex:1">
-                    <div style="display:flex;flex-direction:column;gap:7px;font-size:.85rem;color:var(--muted)">
-                        <?php if ($hosp): ?>
-                        <div style="display:flex;align-items:center;gap:8px">
-                            <i class="fas fa-hospital-alt" style="width:14px;color:var(--teal);flex-shrink:0"></i>
-                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= $hosp ?></span>
-                        </div>
-                        <?php endif; ?>
-                        <div style="display:flex;align-items:center;gap:8px">
-                            <i class="fas fa-map-pin" style="width:14px;color:var(--teal);flex-shrink:0"></i>
-                            <?= $city ?>
-                        </div>
-                        <?php if ($exp > 0): ?>
-                        <div style="display:flex;align-items:center;gap:8px">
-                            <i class="fas fa-award" style="width:14px;color:var(--teal);flex-shrink:0"></i>
-                            <?= $exp ?> years experience
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                        <!-- Card body -->
+                        <div class="doc-card__body">
+                            <h3 class="doc-card__name">Dr. <?= $name ?></h3>
 
-                <!-- Card footer -->
-                <div style="padding:16px 24px 22px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
-                    <div>
-                        <div style="font-size:.75rem;color:var(--muted);margin-bottom:1px">Consultation</div>
-                        <div style="font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--teal-dark)">LKR <?= number_format($fee,0) ?></div>
-                    </div>
-                    <div style="display:flex;gap:8px">
-                        <a href="doctor-profile.php?id=<?= $id ?>"
-                            style="height:36px;padding:0 14px;border-radius:9px;border:1.5px solid var(--border);background:var(--white);color:var(--dark);font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;transition:all .2s;text-decoration:none"
-                            onmouseover="this.style.borderColor='var(--teal)';this.style.color='var(--teal)'"
-                            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--dark)'">
-                            Profile
-                        </a>
-                        <a href="book_appointment.php?doctor_id=<?= $id ?>"
-                            style="height:36px;padding:0 14px;border-radius:9px;background:linear-gradient(135deg,var(--teal),var(--teal-light));color:#fff;font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;transition:all .2s;text-decoration:none;box-shadow:0 3px 10px rgba(13,115,119,.25)"
-                            onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 5px 16px rgba(13,115,119,.35)'"
-                            onmouseout="this.style.transform='';this.style.boxShadow='0 3px 10px rgba(13,115,119,.25)'">
-                            <i class="fas fa-calendar-plus" style="font-size:.72rem"></i> Book
-                        </a>
-                    </div>
-                </div>
+                            <?php if ($hospital): ?>
+                                <p class="doc-card__hospital">
+                                    <i class="fas fa-hospital-alt"></i> <?= $hospital ?>
+                                </p>
+                            <?php endif; ?>
+
+                            <?php if ($bioSnip): ?>
+                                <p class="doc-card__bio"><?= htmlspecialchars($bioSnip) ?></p>
+                            <?php endif; ?>
+
+                            <!-- Stats row -->
+                            <div class="doc-card__stats">
+                                <?php if ($rating > 0): ?>
+                                    <div class="doc-card__stat">
+                                        <div class="doc-card__stat-val doc-card__stat-val--star">
+                                            <?= number_format($rating, 1) ?>
+                                            <i class="fas fa-star"></i>
+                                        </div>
+                                        <div class="doc-card__stat-label">Rating</div>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($exp > 0): ?>
+                                    <div class="doc-card__stat">
+                                        <div class="doc-card__stat-val"><?= $exp ?></div>
+                                        <div class="doc-card__stat-label">Years Exp.</div>
+                                    </div>
+                                <?php endif; ?>
+                                <div class="doc-card__stat">
+                                    <div class="doc-card__stat-val">LKR <?= number_format($fee, 0) ?></div>
+                                    <div class="doc-card__stat-label">Per Visit</div>
+                                </div>
+                            </div>
+
+                            <!-- Availability pill -->
+                            <div class="doc-card__avail">
+                                <span class="doc-card__avail-dot"></span>
+                                <?= $avail ?>
+                            </div>
+                        </div>
+
+                        <!-- Card footer actions -->
+                        <div class="doc-card__footer">
+                            <a href="doctor_profile.php?id=<?= (int)$doc['id'] ?>" class="btn btn-outline-teal">
+                                <i class="fas fa-id-card"></i> Profile
+                            </a>
+                            <a href="book_appointment.php?doctor_id=<?= (int)$doc['id'] ?>" class="btn btn-primary">
+                                <i class="fas fa-calendar-check"></i> Book
+                            </a>
+                        </div>
+                    </article>
+                <?php endforeach; ?>
             </div>
-            <?php
-                endforeach;
-            else:
-                // Demo fallback with Sri Lankan names
-                $demoDoctors = [
-                    ['Nimal','Perera','Cardiology','Colombo Teaching Hospital','Colombo',14,4.9,3500],
-                    ['Kumudini','Jayasinghe','Paediatrics','Lady Ridgeway Hospital','Colombo',10,4.8,2800],
-                    ['Asela','Wickramasinghe','Neurology','National Hospital','Colombo',18,4.7,4200],
-                    ['Chamari','Dissanayake','Dermatology','Kandy General Hospital','Kandy',7,4.6,2500],
-                    ['Pradeep','Ranasinghe','Orthopaedics','Sirimavo Bandaranaike Hospital','Peradeniya',12,4.8,3800],
-                    ['Nilmini','Fernando','Gynaecology','Castle Street Hospital','Colombo',9,4.7,3000],
-                    ['Roshan','Jayawardena','General Practitioner','Nawaloka Hospital','Colombo',5,4.5,1800],
-                    ['Sumudu','Seneviratne','ENT','Colombo South Teaching Hospital','Kalutara',11,4.6,2200],
-                    ['Buddhika','Rathnayake','Pulmonology','Karapitiya Teaching Hospital','Galle',15,4.8,3200],
-                    ['Hasini','Marasinghe','Endocrinology','District General Hospital','Kurunegala',8,4.5,2900],
-                    ['Tharaka','Amarasinghe','Cardiology','Lanka Hospital','Colombo',20,4.9,5000],
-                    ['Dilini','Bandara','Neurology','Teaching Hospital','Kandy',13,4.7,3800],
-                ];
-                foreach ($demoDoctors as [$first,$last,$spec,$hosp,$city,$exp,$rating,$fee]):
-                    $initials = strtoupper($first[0].$last[0]);
-                    $colours  = $specColours[$spec] ?? ['var(--teal)','rgba(13,115,119,.08)'];
-                    $accentC  = $colours[0];
-                    $lightC   = $colours[1];
-            ?>
-            <div class="doc-card"
-                data-name="<?= strtolower("$first $last") ?>"
-                data-spec="<?= $spec ?>"
-                data-city="<?= $city ?>"
-                data-rating="<?= $rating ?>"
-                data-fee="<?= $fee ?>"
-                style="background:var(--white);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s,box-shadow .25s;position:relative">
-                <div style="height:4px;background:<?= $accentC ?>"></div>
-                <div style="padding:24px 24px 16px;display:flex;align-items:flex-start;gap:16px">
-                    <div style="width:64px;height:64px;border-radius:16px;background:<?= $lightC ?>;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:1.3rem;font-weight:700;color:<?= $accentC ?>;flex-shrink:0"><?= $initials ?></div>
-                    <div style="flex:1;min-width:0">
-                        <h3 style="font-size:1rem;color:var(--dark);margin-bottom:3px">Dr. <?= $first ?> <?= $last ?></h3>
-                        <div style="display:inline-block;background:<?= $lightC ?>;color:<?= $accentC ?>;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><?= $spec ?></div>
-                        <div style="display:flex;align-items:center;gap:5px;font-size:.82rem;color:var(--muted)">
-                            <span style="color:var(--accent)"><i class="fas fa-star" style="font-size:.7rem"></i></span>
-                            <strong style="color:var(--dark)"><?= $rating ?></strong> rating
-                        </div>
-                    </div>
-                </div>
-                <div style="padding:0 24px 16px;flex:1">
-                    <div style="display:flex;flex-direction:column;gap:7px;font-size:.85rem;color:var(--muted)">
-                        <div style="display:flex;align-items:center;gap:8px"><i class="fas fa-hospital-alt" style="width:14px;color:var(--teal);flex-shrink:0"></i><span><?= $hosp ?></span></div>
-                        <div style="display:flex;align-items:center;gap:8px"><i class="fas fa-map-pin" style="width:14px;color:var(--teal);flex-shrink:0"></i><?= $city ?></div>
-                        <div style="display:flex;align-items:center;gap:8px"><i class="fas fa-award" style="width:14px;color:var(--teal);flex-shrink:0"></i><?= $exp ?> years experience</div>
-                    </div>
-                </div>
-                <div style="padding:16px 24px 22px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">
-                    <div>
-                        <div style="font-size:.75rem;color:var(--muted);margin-bottom:1px">Consultation</div>
-                        <div style="font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--teal-dark)">LKR <?= number_format($fee,0) ?></div>
-                    </div>
-                    <div style="display:flex;gap:8px">
-                        <a href="doctor-profile.php?id=0"
-                            style="height:36px;padding:0 14px;border-radius:9px;border:1.5px solid var(--border);background:var(--white);color:var(--dark);font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;text-decoration:none">Profile</a>
-                        <a href="book_appointment.php"
-                            style="height:36px;padding:0 14px;border-radius:9px;background:linear-gradient(135deg,var(--teal),var(--teal-light));color:#fff;font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;text-decoration:none;box-shadow:0 3px 10px rgba(13,115,119,.25)">
-                            <i class="fas fa-calendar-plus" style="font-size:.72rem"></i> Book
-                        </a>
-                    </div>
-                </div>
-            </div>
-            <?php
-                endforeach;
-            endif;
-            ?>
-        </div>
 
-        <!-- No results -->
-        <div id="noResults" style="display:none;text-align:center;padding:72px 20px;grid-column:1/-1">
-            <i class="fas fa-user-doctor" style="font-size:3rem;color:var(--border);display:block;margin-bottom:16px"></i>
-            <h3 style="color:var(--dark);margin-bottom:8px">No doctors found</h3>
-            <p style="color:var(--muted)">Try adjusting your search or filter criteria.</p>
-        </div>
+            <!-- Pagination -->
+            <?php if ($totalPages > 1): ?>
+                <nav class="blog-pagination mp-reveal" data-delay="100" style="margin-top:48px">
+                    <?php
+                    $qBase = http_build_query(array_filter(['spec' => $specFilter, 'q' => $search, 'sort' => $sortBy]));
+                    $qBase = $qBase ? '&' . $qBase : '';
+                    ?>
+                    <?php if ($page > 1): ?>
+                        <a href="?page=<?= $page - 1 ?><?= $qBase ?>" class="blog-pagination__btn"><i class="fas fa-chevron-left"></i></a>
+                    <?php endif; ?>
+                    <?php for ($p = max(1, $page - 2); $p <= min($totalPages, $page + 2); $p++): ?>
+                        <a href="?page=<?= $p ?><?= $qBase ?>" class="blog-pagination__btn <?= $p === $page ? 'is-active' : '' ?>"><?= $p ?></a>
+                    <?php endfor; ?>
+                    <?php if ($page < $totalPages): ?>
+                        <a href="?page=<?= $page + 1 ?><?= $qBase ?>" class="blog-pagination__btn"><i class="fas fa-chevron-right"></i></a>
+                    <?php endif; ?>
+                </nav>
+            <?php endif; ?>
+
+        <?php else: ?>
+            <div class="blog-empty mp-reveal" data-delay="0" style="grid-column:1/-1">
+                <i class="fas fa-user-doctor"></i>
+                <h3>No doctors found</h3>
+                <p>Try clearing your filters or searching for a different specialty.</p>
+                <a href="doctors.php" class="btn btn-primary">View All Doctors</a>
+            </div>
+        <?php endif; ?>
+
     </div>
 </section>
 
-<?php include 'footer.php'; ?>
+
+<!-- ═══════════════════════════════════════════════════════
+     STYLES
+═══════════════════════════════════════════════════════════ -->
+<style>
+    /* ── HERO ─────────────────────────────────────────────── */
+    .doc-hero {
+        position: relative;
+        padding: 120px 0 80px;
+        overflow: hidden;
+        text-align: center;
+    }
+
+    .doc-hero__bg {
+        position: absolute;
+        inset: 0;
+        background-size: cover;
+        background-position: center top;
+    }
+
+    .doc-hero__overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(160deg, rgba(6, 60, 62, .93) 0%, rgba(13, 115, 119, .84) 60%, rgba(26, 84, 118, .7) 100%);
+    }
+
+    .doc-hero__content {
+        position: relative;
+        z-index: 1;
+        max-width: 660px;
+        margin: 0 auto;
+    }
+
+    .doc-hero__title {
+        font-family: var(--font-display, 'Poppins', sans-serif);
+        font-size: clamp(2rem, 4vw, 3rem);
+        font-weight: 800;
+        color: #fff;
+        margin: 10px 0 14px;
+    }
+
+    .doc-hero__sub {
+        font-size: 1.05rem;
+        color: rgba(255, 255, 255, .75);
+        line-height: 1.7;
+        margin: 0 0 32px;
+    }
+
+    .doc-hero__search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        max-width: 520px;
+        margin: 0 auto;
+        background: rgba(255, 255, 255, .1);
+        border: 1px solid rgba(255, 255, 255, .25);
+        border-radius: 12px;
+        padding: 6px 6px 6px 16px;
+        backdrop-filter: blur(8px);
+    }
+
+    .doc-hero__search i {
+        color: rgba(255, 255, 255, .5);
+        flex-shrink: 0;
+    }
+
+    .doc-hero__search input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        color: #fff;
+        font-size: .95rem;
+        min-width: 0;
+    }
+
+    .doc-hero__search input::placeholder {
+        color: rgba(255, 255, 255, .45);
+    }
+
+    .doc-hero__search-clear {
+        color: rgba(255, 255, 255, .55);
+        text-decoration: none;
+        font-size: .85rem;
+        padding: 2px 4px;
+    }
+
+    .doc-hero__search-clear:hover {
+        color: #fff;
+    }
+
+    /* ── SPEC TABS BAR ───────────────────────────────────── */
+    .doc-spec-bar {
+        background: #fff;
+        border-bottom: 1.5px solid var(--border, #e4eaec);
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, .05);
+    }
+
+    .doc-spec-bar__inner {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 12px 0;
+        scrollbar-width: none;
+    }
+
+    .doc-spec-bar__inner::-webkit-scrollbar {
+        display: none;
+    }
+
+    .doc-spec-pill {
+        flex-shrink: 0;
+        padding: 7px 16px;
+        border-radius: 50px;
+        font-size: .8rem;
+        font-weight: 600;
+        text-decoration: none;
+        color: var(--mid, #4a6163);
+        background: var(--sand, #f7f3ed);
+        border: 1.5px solid transparent;
+        transition: all .2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+
+    .doc-spec-pill span {
+        background: rgba(0, 0, 0, .08);
+        border-radius: 50px;
+        padding: 1px 7px;
+        font-size: .7rem;
+    }
+
+    .doc-spec-pill:hover {
+        background: var(--pill-bg, #e0f5f5);
+        color: var(--pill-color, #0d7373);
+        border-color: var(--pill-color, #0d7373);
+    }
+
+    .doc-spec-pill.is-active {
+        background: var(--pill-bg, rgba(13, 115, 119, .1));
+        color: var(--pill-color, #0d7373);
+        border-color: var(--pill-color, #0d7373);
+        font-weight: 700;
+    }
+
+    /* ── TOOLBAR ─────────────────────────────────────────── */
+    .doc-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 28px;
+    }
+
+    .doc-toolbar__count {
+        font-size: .9rem;
+        color: var(--mid, #4a6163);
+        margin: 0;
+    }
+
+    .doc-toolbar__sort {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: .85rem;
+        color: var(--muted, #6b7c80);
+    }
+
+    .doc-toolbar__sort select {
+        border: 1.5px solid var(--border, #e4eaec);
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-size: .85rem;
+        outline: none;
+        cursor: pointer;
+        color: var(--dark, #0b1d1e);
+        background: #fff;
+    }
+
+    .doc-toolbar__sort select:focus {
+        border-color: var(--teal, #0d7373);
+    }
+
+    /* ── DOCTOR CARD GRID ────────────────────────────────── */
+    .doc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+        gap: 22px;
+    }
+
+    .doc-card {
+        background: #fff;
+        border: 1.5px solid var(--border, #e4eaec);
+        border-radius: 20px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: transform .24s, box-shadow .24s, border-color .24s;
+    }
+
+    .doc-card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 20px 48px rgba(13, 115, 119, .12);
+        border-color: var(--doc-color, #0d7373);
+    }
+
+    /* ── CARD HEADER (photo zone) ──────────────────────── */
+    .doc-card__header {
+        position: relative;
+        background: var(--doc-bg, #e0f5f5);
+        padding: 28px 22px 60px;
+        display: flex;
+        justify-content: center;
+    }
+
+    /* Decorative wavy divider between header and body */
+    .doc-card__header::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 36px;
+        background: #fff;
+        clip-path: ellipse(58% 100% at 50% 100%);
+    }
+
+    .doc-card__photo-wrap {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 3px solid rgba(255, 255, 255, .9);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+        position: relative;
+        z-index: 1;
+    }
+
+    .doc-card__photo {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .doc-card__initials {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display, 'Poppins', sans-serif);
+        font-size: 1.8rem;
+        font-weight: 800;
+    }
+
+    .doc-card__spec-badge {
+        position: absolute;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: .68rem;
+        font-weight: 700;
+        letter-spacing: .6px;
+        text-transform: uppercase;
+        padding: 4px 14px;
+        border-radius: 50px;
+        white-space: nowrap;
+        z-index: 2;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, .1);
+    }
+
+    /* ── CARD BODY ──────────────────────────────────────── */
+    .doc-card__body {
+        padding: 4px 22px 16px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .doc-card__name {
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: var(--dark, #0b1d1e);
+        margin: 0 0 6px;
+    }
+
+    .doc-card__hospital {
+        font-size: .78rem;
+        color: var(--muted, #6b7c80);
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .doc-card__bio {
+        font-size: .8rem;
+        color: var(--mid, #4a6163);
+        line-height: 1.55;
+        margin: 0 0 14px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .doc-card__stats {
+        display: flex;
+        gap: 16px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+        width: 100%;
+        padding: 12px 0;
+        border-top: 1px solid var(--border, #e4eaec);
+        border-bottom: 1px solid var(--border, #e4eaec);
+    }
+
+    .doc-card__stat {
+        text-align: center;
+    }
+
+    .doc-card__stat-val {
+        font-family: var(--font-display, 'Poppins', sans-serif);
+        font-size: .95rem;
+        font-weight: 800;
+        color: var(--dark, #0b1d1e);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        white-space: nowrap;
+    }
+
+    .doc-card__stat-val--star i {
+        color: #f39c12;
+        font-size: .8rem;
+    }
+
+    .doc-card__stat-label {
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: var(--muted, #6b7c80);
+        margin-top: 2px;
+        font-weight: 600;
+    }
+
+    .doc-card__avail {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: .78rem;
+        color: var(--mid, #4a6163);
+        margin-top: 2px;
+    }
+
+    .doc-card__avail-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #27ae60;
+        flex-shrink: 0;
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 rgba(39, 174, 96, .4);
+        }
+
+        50% {
+            box-shadow: 0 0 0 6px rgba(39, 174, 96, 0);
+        }
+    }
+
+    /* ── CARD FOOTER ───────────────────────────────────── */
+    .doc-card__footer {
+        display: flex;
+        gap: 8px;
+        padding: 0 18px 18px;
+    }
+
+    .doc-card__footer .btn {
+        flex: 1;
+        justify-content: center;
+        font-size: .83rem;
+        padding: 9px 10px;
+    }
+
+    /* ── REUSE FROM Home.php ─────────────────────────────── */
+    .mp-reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity .5s ease, transform .5s ease;
+    }
+
+    .mp-reveal.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .mp-eyebrow {
+        font-size: .73rem;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: var(--teal, #0d7373);
+    }
+
+    .mp-eyebrow--light {
+        color: var(--accent, #f5c518);
+    }
+
+    .mp-section {
+        padding: 72px 0;
+    }
+
+    .mp-section--light {
+        background: #f7f9fc;
+    }
+
+    .btn-outline-teal {
+        background: transparent;
+        border: 1.5px solid var(--teal, #0d7373);
+        color: var(--teal, #0d7373);
+    }
+
+    .btn-outline-teal:hover {
+        background: var(--teal, #0d7373);
+        color: #fff;
+    }
+
+    .blog-pagination {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+    }
+
+    .blog-pagination__btn {
+        width: 40px;
+        height: 40px;
+        border: 1.5px solid var(--border, #e4eaec);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        color: var(--dark, #0b1d1e);
+        font-weight: 600;
+        font-size: .9rem;
+        transition: all .2s;
+    }
+
+    .blog-pagination__btn:hover {
+        border-color: var(--teal, #0d7373);
+        color: var(--teal, #0d7373);
+    }
+
+    .blog-pagination__btn.is-active {
+        background: var(--teal, #0d7373);
+        border-color: var(--teal, #0d7373);
+        color: #fff;
+    }
+
+    .blog-empty {
+        text-align: center;
+        padding: 72px 20px;
+    }
+
+    .blog-empty i {
+        font-size: 3rem;
+        color: var(--muted, #6b7c80);
+        margin-bottom: 16px;
+        display: block;
+    }
+
+    .blog-empty h3 {
+        color: var(--dark, #0b1d1e);
+        margin: 0 0 8px;
+    }
+
+    .blog-empty p {
+        color: var(--muted, #6b7c80);
+        margin: 0 0 24px;
+    }
+
+    /* ── RESPONSIVE ──────────────────────────────────────── */
+    @media (max-width: 600px) {
+        .doc-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .doc-card__header {
+            padding: 22px 16px 56px;
+        }
+
+        .doc-card__photo-wrap {
+            width: 76px;
+            height: 76px;
+        }
+
+        .doc-card__body {
+            padding: 4px 14px 12px;
+        }
+
+        .doc-card__footer {
+            padding: 0 12px 14px;
+            gap: 6px;
+        }
+    }
+
+    @media (max-width: 400px) {
+        .doc-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .mp-reveal {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
+        .doc-card__avail-dot {
+            animation: none;
+        }
+    }
+</style>
 
 <script>
-(function(){
-    var nameInput  = document.getElementById('searchName');
-    var specSelect = document.getElementById('filterSpec');
-    var citySelect = document.getElementById('filterCity');
-    var sortSelect = document.getElementById('sortSelect');
-    var grid       = document.getElementById('doctorGrid');
-    var noRes      = document.getElementById('noResults');
-    var countEl    = document.getElementById('resultCount');
-
-    function cards() { return Array.from(grid.querySelectorAll('.doc-card')); }
-
-    function filterAll() {
-        var nq  = nameInput.value.toLowerCase();
-        var sq  = specSelect.value;
-        var cq  = citySelect.value;
-        var vis = 0;
-        cards().forEach(function(c){
-            var nm = (c.dataset.name||'').includes(nq);
-            var sm = sq === 'all' || c.dataset.spec === sq;
-            var cm = cq === 'all' || (c.dataset.city||'').toLowerCase().includes(cq.toLowerCase());
-            var show = nm && sm && cm;
-            c.style.display = show ? '' : 'none';
-            if (show) vis++;
+    // Scroll reveal
+    const io = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+            if (!e.isIntersecting) return;
+            setTimeout(() => e.target.classList.add('is-visible'), parseInt(e.target.dataset.delay || 0));
+            io.unobserve(e.target);
         });
-        countEl.textContent = vis;
-        noRes.style.display = vis ? 'none' : 'block';
-    }
-
-    function sortAll(val) {
-        var cs = cards().filter(function(c){ return c.style.display !== 'none'; });
-        cs.sort(function(a,b){
-            if (val === 'name')    return (a.dataset.name||'').localeCompare(b.dataset.name||'');
-            if (val === 'rating')  return parseFloat(b.dataset.rating||0) - parseFloat(a.dataset.rating||0);
-            if (val === 'fee_asc') return parseFloat(a.dataset.fee||0)    - parseFloat(b.dataset.fee||0);
-            return 0;
-        });
-        cs.forEach(function(c){ grid.appendChild(c); });
-    }
-
-    // Pill buttons
-    document.querySelectorAll('.spec-pill-btn').forEach(function(btn){
-        btn.addEventListener('click', function(){
-            document.querySelectorAll('.spec-pill-btn').forEach(function(b){
-                b.style.cssText = b.style.cssText.replace(/background:[^;]+;/,'background:var(--white);').replace(/border-color:[^;]+;/,'border-color:var(--border);').replace(/color:[^;]+;/,'color:var(--muted);');
-                b.style.background='var(--white)'; b.style.borderColor='var(--border)'; b.style.color='var(--muted)';
-            });
-            this.style.background='rgba(13,115,119,.1)'; this.style.borderColor='var(--teal)'; this.style.color='var(--teal)';
-            specSelect.value = this.dataset.spec;
-            filterAll();
-        });
+    }, {
+        threshold: 0.08
     });
+    document.querySelectorAll('.mp-reveal').forEach(el => io.observe(el));
 
-    nameInput.addEventListener('input', filterAll);
-    specSelect.addEventListener('change', filterAll);
-    citySelect.addEventListener('change', filterAll);
-    sortSelect.addEventListener('change', function(){ sortAll(this.value); });
-
-    // Hover effect
-    cards().forEach(function(c){
-        c.addEventListener('mouseenter', function(){ this.style.transform='translateY(-5px)'; this.style.boxShadow='var(--shadow-md)'; });
-        c.addEventListener('mouseleave', function(){ this.style.transform=''; this.style.boxShadow=''; });
+    // Sticky spec bar active indicator scroll
+    const specBar = document.querySelector('.doc-spec-bar__inner');
+    const activePill = specBar?.querySelector('.doc-spec-pill.is-active');
+    if (activePill) activePill.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center'
     });
-
-    // Pre-apply URL filters
-    <?php if ($filterSpec): ?>
-    specSelect.value = '<?= addslashes($filterSpec) ?>';
-    <?php endif; ?>
-    <?php if ($filterCity): ?>
-    citySelect.value = '<?= addslashes($filterCity) ?>';
-    <?php endif; ?>
-
-    filterAll();
-})();
-</script>
+<?php include 'footer.php'; ?>
