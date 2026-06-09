@@ -8,7 +8,8 @@ require_once __DIR__ . '/db_connect.php';
 
 // ── Auth helpers ───────────────────────────────────────────
 
-function get_logged_in_user(): ?array {
+function get_logged_in_user(): ?array
+{
     if (!isset($_SESSION['user_id'])) return null;
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT id, first_name, last_name, email, role, phone, city FROM users WHERE id = ?');
@@ -19,7 +20,8 @@ function get_logged_in_user(): ?array {
     return $result ?: null;
 }
 
-function require_role(string ...$roles): void {
+function require_role(string ...$roles): void
+{
     if (session_status() === PHP_SESSION_NONE) session_start();
     if (!isset($_SESSION['user_id'])) {
         header('Location: Login.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
@@ -32,20 +34,23 @@ function require_role(string ...$roles): void {
     }
 }
 
-function csrf_token(): string {
+function csrf_token(): string
+{
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
     return $_SESSION['csrf_token'];
 }
 
-function csrf_verify(string $token): bool {
+function csrf_verify(string $token): bool
+{
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
 // ── User functions ─────────────────────────────────────────
 
-function fetch_user_by_id(int $id): ?array {
+function fetch_user_by_id(int $id): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT id, first_name, last_name, email, role FROM users WHERE id = ? LIMIT 1');
     $stmt->bind_param('i', $id);
@@ -55,7 +60,8 @@ function fetch_user_by_id(int $id): ?array {
     return $row ?: null;
 }
 
-function fetch_user_by_email(string $email): ?array {
+function fetch_user_by_email(string $email): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
     $stmt->bind_param('s', $email);
@@ -65,7 +71,8 @@ function fetch_user_by_email(string $email): ?array {
     return $row ?: null;
 }
 
-function create_user(string $first, string $last, string $email, string $password, string $role = 'patient', string $phone = '', string $city = ''): int|false {
+function create_user(string $first, string $last, string $email, string $password, string $role = 'patient', string $phone = '', string $city = ''): int|false
+{
     $conn = get_db_connection();
     $hash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
     $stmt = $conn->prepare('INSERT INTO users (first_name, last_name, email, password_hash, role, phone, city) VALUES (?,?,?,?,?,?,?)');
@@ -81,7 +88,8 @@ function create_user(string $first, string $last, string $email, string $passwor
 
 // ── Patient functions ──────────────────────────────────────
 
-function create_patient_profile(int $userId): bool {
+function create_patient_profile(int $userId): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('INSERT IGNORE INTO patients (user_id) VALUES (?)');
     $stmt->bind_param('i', $userId);
@@ -90,7 +98,8 @@ function create_patient_profile(int $userId): bool {
     return $ok;
 }
 
-function fetch_patient_by_user_id(int $userId): ?array {
+function fetch_patient_by_user_id(int $userId): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT p.*, u.first_name, u.last_name, u.email, u.phone, u.city FROM patients p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? LIMIT 1');
     $stmt->bind_param('i', $userId);
@@ -102,7 +111,8 @@ function fetch_patient_by_user_id(int $userId): ?array {
 
 // ── Doctor functions ───────────────────────────────────────
 
-function fetch_all_doctors(): array {
+function fetch_all_doctors(): array
+{
     $conn = get_db_connection();
     $result = $conn->query(
         'SELECT d.*, u.first_name, u.last_name, u.email, u.phone, u.city
@@ -113,7 +123,8 @@ function fetch_all_doctors(): array {
     return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
-function fetch_doctor_by_id(int $id): ?array {
+function fetch_doctor_by_id(int $id): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         'SELECT d.*, u.first_name, u.last_name, u.email, u.phone, u.city
@@ -126,7 +137,8 @@ function fetch_doctor_by_id(int $id): ?array {
     return $row ?: null;
 }
 
-function fetch_doctor_by_user_id(int $userId): ?array {
+function fetch_doctor_by_user_id(int $userId): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         'SELECT d.*, u.first_name, u.last_name, u.email, u.phone, u.city
@@ -141,7 +153,8 @@ function fetch_doctor_by_user_id(int $userId): ?array {
 
 // ── Appointment functions ──────────────────────────────────
 
-function create_appointment(int $patientId, int $doctorId, string $dt, string $notes): bool {
+function create_appointment(int $patientId, int $doctorId, string $dt, string $notes): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('INSERT INTO appointments (patient_id, doctor_id, appointment_dt, notes) VALUES (?,?,?,?)');
     $stmt->bind_param('iiss', $patientId, $doctorId, $dt, $notes);
@@ -150,7 +163,8 @@ function create_appointment(int $patientId, int $doctorId, string $dt, string $n
     return $ok;
 }
 
-function doctor_has_conflict(int $doctorId, string $dt): bool {
+function doctor_has_conflict(int $doctorId, string $dt): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         "SELECT id FROM appointments
@@ -164,7 +178,8 @@ function doctor_has_conflict(int $doctorId, string $dt): bool {
     return $has;
 }
 
-function fetch_appointments_for_patient(int $patientId): array {
+function fetch_appointments_for_patient(int $patientId): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         "SELECT a.*, d.specialization, d.consultation_fee, u.first_name AS doc_first, u.last_name AS doc_last
@@ -181,7 +196,8 @@ function fetch_appointments_for_patient(int $patientId): array {
     return $rows;
 }
 
-function fetch_appointments_for_doctor(int $doctorId): array {
+function fetch_appointments_for_doctor(int $doctorId): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         "SELECT a.*, u.first_name AS pat_first, u.last_name AS pat_last, u.phone AS pat_phone
@@ -198,7 +214,8 @@ function fetch_appointments_for_doctor(int $doctorId): array {
     return $rows;
 }
 
-function update_appointment_status(int $appointmentId, string $status): bool {
+function update_appointment_status(int $appointmentId, string $status): bool
+{
     $allowed = ['pending', 'confirmed', 'completed', 'cancelled'];
     if (!in_array($status, $allowed, true)) return false;
     $conn = get_db_connection();
@@ -211,7 +228,8 @@ function update_appointment_status(int $appointmentId, string $status): bool {
 
 // ── Medical reports ────────────────────────────────────────
 
-function fetch_reports_for_patient(int $patientId): array {
+function fetch_reports_for_patient(int $patientId): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT * FROM medical_reports WHERE patient_id = ? ORDER BY created_at DESC');
     $stmt->bind_param('i', $patientId);
@@ -221,7 +239,8 @@ function fetch_reports_for_patient(int $patientId): array {
     return $rows;
 }
 
-function save_report(int $patientId, ?int $appointmentId, int $uploadedBy, string $fileName, string $filePath, string $description): bool {
+function save_report(int $patientId, ?int $appointmentId, int $uploadedBy, string $fileName, string $filePath, string $description): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('INSERT INTO medical_reports (patient_id, appointment_id, uploaded_by, file_name, file_path, description) VALUES (?,?,?,?,?,?)');
     $stmt->bind_param('iiisss', $patientId, $appointmentId, $uploadedBy, $fileName, $filePath, $description);
@@ -232,7 +251,8 @@ function save_report(int $patientId, ?int $appointmentId, int $uploadedBy, strin
 
 // ── Payments ───────────────────────────────────────────────
 
-function fetch_payment_for_appointment(int $appointmentId): ?array {
+function fetch_payment_for_appointment(int $appointmentId): ?array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT * FROM payments WHERE appointment_id = ? LIMIT 1');
     $stmt->bind_param('i', $appointmentId);
@@ -242,7 +262,8 @@ function fetch_payment_for_appointment(int $appointmentId): ?array {
     return $row ?: null;
 }
 
-function create_or_update_payment(int $appointmentId, float $amount, string $method, string $ref): bool {
+function create_or_update_payment(int $appointmentId, float $amount, string $method, string $ref): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare(
         'INSERT INTO payments (appointment_id, amount, status, payment_method, transaction_ref, paid_at)
@@ -258,7 +279,8 @@ function create_or_update_payment(int $appointmentId, float $amount, string $met
 // ── Messaging (modelled on MediCare_Plus reference) ────────
 
 // Fetch all users available to message (for recipient dropdown)
-function fetch_message_recipients(int $currentUserId, string $role): array {
+function fetch_message_recipients(int $currentUserId, string $role): array
+{
     $conn = get_db_connection();
     if ($role === 'patient') {
         // Patients can message their appointed doctors + any admin
@@ -306,7 +328,8 @@ function fetch_message_recipients(int $currentUserId, string $role): array {
 }
 
 // Send a message — returns true on success
-function send_message(int $senderId, int $receiverId, string $body): bool {
+function send_message(int $senderId, int $receiverId, string $body): bool
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('INSERT INTO messages (sender_id, receiver_id, message, is_read, created_at) VALUES (?, ?, ?, 0, NOW())');
     $stmt->bind_param('iis', $senderId, $receiverId, $body);
@@ -327,7 +350,8 @@ function send_message(int $senderId, int $receiverId, string $body): bool {
 }
 
 // Fetch inbox: one row per conversation partner, most recent first
-function fetch_inbox(int $userId): array {
+function fetch_inbox(int $userId): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare("
         SELECT u.id, u.first_name, u.last_name, u.role,
@@ -356,7 +380,8 @@ function fetch_inbox(int $userId): array {
 }
 
 // Fetch full conversation between two users, oldest first
-function fetch_conversation(int $userId, int $otherId): array {
+function fetch_conversation(int $userId, int $otherId): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare("
         SELECT m.id, m.sender_id, m.receiver_id, m.message AS body,
@@ -376,7 +401,8 @@ function fetch_conversation(int $userId, int $otherId): array {
 }
 
 // Mark all messages from a sender to current user as read
-function mark_conversation_read(int $readerId, int $senderId): void {
+function mark_conversation_read(int $readerId, int $senderId): void
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('UPDATE messages SET is_read = 1 WHERE receiver_id = ? AND sender_id = ? AND is_read = 0');
     $stmt->bind_param('ii', $readerId, $senderId);
@@ -385,7 +411,8 @@ function mark_conversation_read(int $readerId, int $senderId): void {
 }
 
 // Count unread messages (used for nav badge on dashboards)
-function get_unread_messages(int $userId): int {
+function get_unread_messages(int $userId): int
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND is_read = 0');
     $stmt->bind_param('i', $userId);
@@ -398,7 +425,8 @@ function get_unread_messages(int $userId): int {
 
 // ── Notifications ──────────────────────────────────────────
 
-function get_unread_count(int $userId): int {
+function get_unread_count(int $userId): int
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0');
     $stmt->bind_param('i', $userId);
@@ -409,7 +437,8 @@ function get_unread_count(int $userId): int {
     return (int) $count;
 }
 
-function add_notification(int $userId, string $message): void {
+function add_notification(int $userId, string $message): void
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('INSERT INTO notifications (user_id, message) VALUES (?,?)');
     $stmt->bind_param('is', $userId, $message);
@@ -417,7 +446,8 @@ function add_notification(int $userId, string $message): void {
     $stmt->close();
 }
 
-function fetch_notifications(int $userId, int $limit = 20): array {
+function fetch_notifications(int $userId, int $limit = 20): array
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?');
     $stmt->bind_param('ii', $userId, $limit);
@@ -427,7 +457,8 @@ function fetch_notifications(int $userId, int $limit = 20): array {
     return $rows;
 }
 
-function mark_notifications_read(int $userId): void {
+function mark_notifications_read(int $userId): void
+{
     $conn = get_db_connection();
     $stmt = $conn->prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?');
     $stmt->bind_param('i', $userId);
@@ -437,15 +468,18 @@ function mark_notifications_read(int $userId): void {
 
 // ── Utilities ──────────────────────────────────────────────
 
-function navActive(string $page, string $current): string {
+function navActive(string $page, string $current): string
+{
     return strpos($current, $page) !== false ? 'active' : '';
 }
 
-function format_date(string $dt): string {
+function format_date(string $dt): string
+{
     return date('d M Y, g:i A', strtotime($dt));
 }
 
-function status_badge(string $status): string {
+function status_badge(string $status): string
+{
     $map = [
         'pending'   => 'badge-pending',
         'confirmed' => 'badge-confirmed',
