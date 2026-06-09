@@ -48,7 +48,7 @@ include 'header.php';
             <a href="dashboard_patient.php" class="active"><i class="fas fa-home"></i> Dashboard Overview</a>
             <a href="book_appointment.php"><i class="fas fa-calendar-plus"></i> Book Appointment</a>
             <a href="medical_reports.php"><i class="fas fa-folder-open"></i> Medical Records</a>
-            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
+            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox <?php if ($unreadCount > 0): ?><span style="background:#0d7377;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;float:right;"><?= $unreadCount ?></span><?php endif; ?></a>
             <div class="dash-nav-divider"></div>
             <a href="profile.php"><i class="fas fa-user-cog"></i> Profile Settings</a>
             <a href="logout.php" style="color: #dc3545;"><i class="fas fa-sign-out-alt"></i> Sign Out</a>

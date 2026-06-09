@@ -22,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $conn->prepare("INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)");
             $stmt->bind_param('iis', $user['id'], $receiverId, $messageBody);
             if ($stmt->execute()) {
+                $stmt->close();
+                // Redirect immediately after sending
                 header("Location: chat_engine.php?chat_with=" . $receiverId);
                 exit;
             } else {
@@ -32,10 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Allowed Recipients based on Role (Updated to include Admins)
+// Fetch Allowed Recipients (Includes Admins)
 $recipients = [];
 if ($role === 'patient') {
-    // Patients can message doctors they have booked + System Admins
     $stmt = $conn->prepare("
         SELECT DISTINCT u.id, u.first_name, u.last_name, d.specialization as sub_text
         FROM users u
@@ -49,7 +50,6 @@ if ($role === 'patient') {
     ");
     $stmt->bind_param('i', $user['id']);
 } elseif ($role === 'doctor') {
-    // Doctors can message patients they have seen + System Admins
     $stmt = $conn->prepare("
         SELECT DISTINCT u.id, u.first_name, u.last_name, u.phone as sub_text
         FROM users u
@@ -63,7 +63,6 @@ if ($role === 'patient') {
     ");
     $stmt->bind_param('i', $user['id']);
 } else {
-    // Admin can message anyone
     $stmt = $conn->prepare("SELECT id, first_name, last_name, role as sub_text FROM users WHERE id != ?");
     $stmt->bind_param('i', $user['id']);
 }
@@ -81,9 +80,7 @@ include 'header.php';
 <div class="dash-layout">
     <aside class="dash-sidebar">
         <div class="dash-user">
-            <div class="dash-avatar">
-                <?= strtoupper(substr($user['first_name'], 0, 1) . substr($user['last_name'], 0, 1)) ?>
-            </div>
+            <div class="dash-avatar"><?= strtoupper(substr($user['first_name'], 0, 1) . substr($user['last_name'], 0, 1)) ?></div>
             <h4><?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h4>
             <span><?= ucfirst($role) ?> Portal</span>
         </div>
@@ -100,55 +97,36 @@ include 'header.php';
         <div class="dash-header">
             <div>
                 <h1>Compose Secure Message</h1>
-                <p>Start a new encrypted conversation with your medical contacts or system support.</p>
             </div>
             <a href="chat_engine.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Inbox</a>
         </div>
 
-        <?php if ($msgAlert): ?>
-            <div class="card" style="margin-bottom: 24px; padding: 15px; border-left: 4px solid #dc3545;">
-                <strong><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($msgAlert) ?></strong>
-            </div>
-        <?php endif; ?>
+        <?php if ($msgAlert): ?><div class="card" style="padding: 15px; border-left: 4px solid #dc3545;"><strong><?= htmlspecialchars($msgAlert) ?></strong></div><?php endif; ?>
 
-        <div class="card" style="max-width: 800px;">
+        <div class="card">
             <div class="card-header">
                 <h2 class="card-title">New Message</h2>
             </div>
             <div style="padding: 25px;">
-                <form method="POST">
+                <form method="POST" action="compose_message.php">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-
                     <div style="margin-bottom: 20px;">
                         <label style="display:block; margin-bottom: 8px; font-weight: 600;">Select Recipient</label>
-                        <?php if (empty($recipients)): ?>
-                            <p style="color: var(--muted); padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid var(--border);">
-                                You do not have any active contacts in the system yet.
-                            </p>
-                        <?php else: ?>
-                            <select name="receiver_id" class="form-control" required style="width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit;">
-                                <option value="">-- Choose a Contact --</option>
-                                <?php foreach ($recipients as $r): ?>
-                                    <option value="<?= $r['id'] ?>">
-                                        <?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?> (<?= htmlspecialchars($r['sub_text']) ?>)
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        <?php endif; ?>
+                        <select name="receiver_id" class="form-control" required style="width: 100%; padding: 12px;">
+                            <option value="">-- Choose a Contact --</option>
+                            <?php foreach ($recipients as $r): ?>
+                                <option value="<?= $r['id'] ?>"><?= htmlspecialchars($r['first_name'] . ' ' . $r['last_name']) ?> (<?= htmlspecialchars($r['sub_text']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-
                     <div style="margin-bottom: 20px;">
                         <label style="display:block; margin-bottom: 8px; font-weight: 600;">Secure Message</label>
-                        <textarea name="message_body" class="form-control" rows="8" placeholder="Type your message here..." required <?= empty($recipients) ? 'disabled' : '' ?> style="width: 100%; padding: 15px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; resize: vertical;"></textarea>
+                        <textarea name="message_body" class="form-control" rows="8" required style="width: 100%; padding: 15px;"></textarea>
                     </div>
-
-                    <button type="submit" class="btn btn-primary" <?= empty($recipients) ? 'disabled' : '' ?> style="padding: 12px 24px; font-size: 1rem;">
-                        <i class="fas fa-lock"></i> Send Secure Message
-                    </button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-lock"></i> Send Secure Message</button>
                 </form>
             </div>
         </div>
     </main>
 </div>
-
 <?php include 'footer.php'; ?>

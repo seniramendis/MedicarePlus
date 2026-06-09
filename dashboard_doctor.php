@@ -73,7 +73,7 @@ include 'header.php';
             <a href="dashboard_doctor.php" class="active"><i class="fas fa-th-large"></i> Dashboard</a>
             <a href="appointments.php"><i class="fas fa-calendar-alt"></i> My Schedule</a>
             <a href="patients.php"><i class="fas fa-users"></i> My Patients</a>
-            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
+            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox <?php if ($unreadCount > 0): ?><span style="background:#0d7377;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;float:right;"><?= $unreadCount ?></span><?php endif; ?></a>
             <div class="dash-nav-divider"></div>
             <a href="profile_doctor.php"><i class="fas fa-user-md"></i> Edit Profile</a>
             <a href="logout.php" style="color:#e74c3c"><i class="fas fa-sign-out-alt"></i> Logout</a>

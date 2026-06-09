@@ -34,6 +34,11 @@ $stats = [
     'revenue'  => $conn->query("SELECT SUM(amount) FROM payments WHERE status = 'paid'")->fetch_row()[0] ?? 0
 ];
 
+// Unread messages count for admin
+$unreadMsgs = 0;
+$res = $conn->query("SELECT COUNT(*) FROM messages WHERE receiver_id = {$user['id']} AND is_read = 0");
+if ($res) $unreadMsgs = (int)$res->fetch_row()[0];
+
 // Fetch Recent Users for Management
 $recentUsers = [];
 $res = $conn->query("SELECT id, first_name, last_name, email, role, created_at FROM users ORDER BY created_at DESC LIMIT 15");
@@ -60,7 +65,7 @@ include 'header.php';
             <a href="dashboard_admin.php" class="active"><i class="fas fa-users-cog"></i> User Management</a>
             <a href="manage_doctors.php"><i class="fas fa-user-md"></i> Doctor Profiles</a>
             <a href="admin_reports.php"><i class="fas fa-chart-line"></i> System Reports</a>
-            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
+            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox <?php if ($unreadMsgs > 0): ?><span style="background:#0d7377;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72rem;font-weight:700;float:right;"><?= $unreadMsgs ?></span><?php endif; ?></a>
             <div class="dash-nav-divider"></div>
             <a href="logout.php" style="color: #dc3545;"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
         </nav>
@@ -111,9 +116,14 @@ include 'header.php';
                     <span>Gross Revenue</span>
                 </div>
             </div>
+            <div class="stat-widget">
+                <div class="stat-icon teal"><i class="fas fa-envelope"></i></div>
+                <div class="stat-info">
+                    <strong><?= $unreadMsgs ?></strong>
+                    <span>Unread Messages</span>
+                </div>
+            </div>
         </div>
-
-        <!-- User Management Table -->
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title"><i class="fas fa-users"></i> Registered System Users</h2>
