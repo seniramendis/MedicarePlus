@@ -885,4 +885,6 @@ function getDoctorPhoto($spec, $docId, $specPhotos, $fallbackPhotos)
         block: 'nearest',
         inline: 'center'
     });
+</script>
+
 <?php include 'footer.php'; ?>

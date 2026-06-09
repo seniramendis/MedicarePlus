@@ -12,8 +12,12 @@ include 'header.php';
 
     <!-- Layered background: image + gradient overlay -->
     <div class="mp-hero__bg">
-        <div class="mp-hero__bg-img" id="heroParallax"
-            style="background-image: url('https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=1600&q=80&auto=format&fit=crop');">
+        <div class="mp-hero__bg-img" id="heroSlideA"
+            style="background-image: url('https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=1920&q=80&auto=format&fit=crop');">
+        </div>
+        <div class="mp-hero__bg-img" id="heroSlideB"
+            style="opacity:0; transition:opacity 1.3s ease-in-out;
+                   background-image: url('https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=1920&q=80&auto=format&fit=crop');">
         </div>
         <div class="mp-hero__overlay"></div>
     </div>
@@ -1280,7 +1284,7 @@ include 'header.php';
         document.querySelectorAll('.mp-reveal').forEach(el => revealObserver.observe(el));
 
         // ── 2. Parallax hero on scroll ────────────────────
-        const heroBg = document.getElementById('heroParallax');
+        const heroBg = document.getElementById('heroSlideA');
         if (heroBg && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
             window.addEventListener('scroll', () => {
                 const y = window.scrollY;
@@ -1289,6 +1293,72 @@ include 'header.php';
                 passive: true
             });
         }
+
+        // ── 4. Hero background image slider ───────────────
+        // Cycles through Unsplash API images with a smooth crossfade.
+        // To swap or add images, edit the `sliderImages` array below.
+        (function() {
+            const sliderImages = [
+                // Hospital corridor
+                'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=1920&q=80&auto=format&fit=crop',
+                // Doctor consulting patient
+                'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=1920&q=80&auto=format&fit=crop',
+                // Modern hospital facility
+                'https://images.unsplash.com/photo-1504439468489-c8920d796a29?w=1920&q=80&auto=format&fit=crop',
+                // Medical team
+                'https://images.unsplash.com/photo-1551601651-2a8555f1a136?w=1920&q=80&auto=format&fit=crop',
+            ];
+
+            const INTERVAL = 5000; // ms between slides
+            const TRANSITION = 1300; // ms crossfade (matches CSS transition above)
+
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+            const layerA = document.getElementById('heroSlideA');
+            const layerB = document.getElementById('heroSlideB');
+            if (!layerA || !layerB) return;
+
+            // Preload all images
+            sliderImages.forEach(src => {
+                const i = new Image();
+                i.src = src;
+            });
+
+            let current = 0;
+            let showingA = true;
+
+            // Both layers need the same transition for the parallax to keep working
+            layerA.style.transition = 'opacity ' + TRANSITION + 'ms ease-in-out';
+            layerB.style.transition = 'opacity ' + TRANSITION + 'ms ease-in-out';
+
+            // Re-attach parallax to whichever layer is currently visible
+            const parallaxScroll = () => {
+                const y = window.scrollY;
+                const visible = showingA ? layerA : layerB;
+                visible.style.transform = `translateY(${y * 0.3}px)`;
+            };
+            window.addEventListener('scroll', parallaxScroll, {
+                passive: true
+            });
+
+            setInterval(() => {
+                current = (current + 1) % sliderImages.length;
+                const src = sliderImages[current];
+
+                if (showingA) {
+                    layerB.style.backgroundImage = `url('${src}')`;
+                    layerB.style.transform = layerA.style.transform; // sync position
+                    layerB.style.opacity = '1';
+                    layerA.style.opacity = '0';
+                } else {
+                    layerA.style.backgroundImage = `url('${src}')`;
+                    layerA.style.transform = layerB.style.transform;
+                    layerA.style.opacity = '1';
+                    layerB.style.opacity = '0';
+                }
+                showingA = !showingA;
+            }, INTERVAL);
+        })();
 
         // ── 3. Count-up numbers on hero stats ─────────────
         function countUp(el, target, duration) {

@@ -774,4 +774,6 @@ $featuredPost = $conn->query($featuredSql)?->fetch_assoc();
         btn.style.background = '#27ae60';
         form.querySelector('input').disabled = true;
     }
+</script>
+
 <?php include 'footer.php'; ?>

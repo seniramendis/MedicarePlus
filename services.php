@@ -7,7 +7,7 @@ $services = [];
 $conn = get_db_connection();
 if ($conn) {
     try {
-        $r = $conn->query("SELECT * FROM services ORDER BY category, name");
+        $r = $conn->query("SELECT * FROM services ORDER BY name");
         if ($r) $services = $r->fetch_all(MYSQLI_ASSOC);
     } catch (Exception $e) {}
 }

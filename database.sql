@@ -1,13 +1,11 @@
 -- =====================================================
 -- Medicare Plus Sri Lanka — Complete Database Schema
--- Run in phpMyAdmin against: medicare_plus_db
--- Default XAMPP port: 3306
+-- Port: 3307 (your XAMPP MySQL port)
 -- =====================================================
 
 CREATE DATABASE IF NOT EXISTS medicare_plus_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE medicare_plus_db;
 
--- USERS
 CREATE TABLE IF NOT EXISTS users (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     first_name      VARCHAR(80)  NOT NULL,
@@ -22,7 +20,6 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- PATIENTS
 CREATE TABLE IF NOT EXISTS patients (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id         INT UNSIGNED NOT NULL UNIQUE,
@@ -35,7 +32,6 @@ CREATE TABLE IF NOT EXISTS patients (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- DOCTORS
 CREATE TABLE IF NOT EXISTS doctors (
     id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id             INT UNSIGNED NOT NULL UNIQUE,
@@ -52,7 +48,6 @@ CREATE TABLE IF NOT EXISTS doctors (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- APPOINTMENTS
 CREATE TABLE IF NOT EXISTS appointments (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     patient_id      INT UNSIGNED NOT NULL,
@@ -65,7 +60,6 @@ CREATE TABLE IF NOT EXISTS appointments (
     FOREIGN KEY (doctor_id)  REFERENCES doctors(id)  ON DELETE CASCADE
 );
 
--- MEDICAL REPORTS
 CREATE TABLE IF NOT EXISTS medical_reports (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     patient_id      INT UNSIGNED NOT NULL,
@@ -80,7 +74,6 @@ CREATE TABLE IF NOT EXISTS medical_reports (
     FOREIGN KEY (uploaded_by)    REFERENCES users(id) ON DELETE CASCADE
 );
 
--- PAYMENTS
 CREATE TABLE IF NOT EXISTS payments (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     appointment_id  INT UNSIGNED NOT NULL UNIQUE,
@@ -93,7 +86,6 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
 );
 
--- NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS notifications (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id     INT UNSIGNED NOT NULL,
@@ -103,7 +95,6 @@ CREATE TABLE IF NOT EXISTS notifications (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- MESSAGES
 CREATE TABLE IF NOT EXISTS messages (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     sender_id   INT UNSIGNED NOT NULL,
@@ -115,7 +106,6 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- BLOG POSTS
 CREATE TABLE IF NOT EXISTS blog_posts (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     author_id   INT UNSIGNED,
@@ -123,27 +113,25 @@ CREATE TABLE IF NOT EXISTS blog_posts (
     excerpt     TEXT,
     content     LONGTEXT,
     category    VARCHAR(80),
+    read_time   TINYINT UNSIGNED DEFAULT 5,
     published   TINYINT(1) DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- SERVICES
 CREATE TABLE IF NOT EXISTS services (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(120) NOT NULL,
     description TEXT,
+    category    VARCHAR(80),
     icon        VARCHAR(80),
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- =====================================================
 -- SEED DATA
--- Passwords:
---   Doctors  → Doctor123!
---   Admin    → Admin123!
---   Patient  → Patient123!
+-- Passwords: Doctors→Doctor123! | Admin→Admin123! | Patient→Patient123!
 -- =====================================================
 
 INSERT INTO users (first_name, last_name, email, password_hash, role, phone, city) VALUES
@@ -170,16 +158,16 @@ INSERT INTO doctors (user_id, specialization, qualification, hospital, location,
 
 INSERT INTO patients (user_id) VALUES (10);
 
-INSERT INTO blog_posts (author_id, title, excerpt, content, category, published) VALUES
+INSERT INTO blog_posts (author_id, title, excerpt, content, category, read_time, published) VALUES
 (1, 'Understanding Heart Health: Warning Signs You Should Never Ignore',
    'Early detection of heart disease can save your life. Here''s what our cardiologists want you to know.',
-   'Heart disease remains the leading cause of death in Sri Lanka. Early recognition of warning signs is critical. Chest pain, shortness of breath, and unusual fatigue are key indicators that require immediate medical attention.',
-   'Cardiology', 1),
+   'Heart disease remains the leading cause of death in Sri Lanka. Early recognition of warning signs is critical. Chest pain, shortness of breath, and unusual fatigue are key indicators.',
+   'Cardiology', 5, 1),
 (4, 'Children''s Vaccinations: A Complete Schedule for Sri Lankan Parents',
    'Keeping up with your child''s vaccination calendar is one of the most important things you can do.',
-   'Vaccinations protect children from serious diseases. The Sri Lankan National Immunisation Programme covers 13 vaccine-preventable diseases. Consult your paediatrician to ensure your child is up to date.',
-   'Paediatrics', 1),
+   'Vaccinations protect children from serious diseases. The Sri Lankan National Immunisation Programme covers 13 vaccine-preventable diseases.',
+   'Paediatrics', 4, 1),
 (8, 'Managing Diabetes Through Diet: A Practical Guide',
    'Dietary changes remain the single most effective tool in managing type 2 diabetes.',
-   'A balanced diet low in refined carbohydrates and high in fibre can significantly improve blood sugar control. Our endocrinologist shares practical meal planning strategies suitable for Sri Lankan cuisine.',
-   'Endocrinology', 1);
+   'A balanced diet low in refined carbohydrates and high in fibre can significantly improve blood sugar control.',
+   'Endocrinology', 6, 1);
