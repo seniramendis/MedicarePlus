@@ -37,7 +37,7 @@ foreach ($appointments as $a) {
     }
 }
 
-// Calculate Revenue directly from Payments table (Advanced Logic)
+// Calculate Revenue directly from Payments table
 $conn = get_db_connection();
 $totalRevenue = 0;
 $transactions = [];
@@ -58,6 +58,7 @@ include 'header.php';
 ?>
 
 <div class="dash-layout">
+    <!-- Sidebar -->
     <aside class="dash-sidebar">
         <div class="dash-user">
             <div class="dash-avatar" style="background: rgba(13,115,119,.3); color: var(--teal-light);">
@@ -66,10 +67,13 @@ include 'header.php';
             <h4>Dr. <?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h4>
             <span><?= htmlspecialchars($doctor['specialization']) ?></span>
         </div>
+
+        <!-- Updated Navigation with Secure Inbox -->
         <nav class="dash-nav">
             <a href="dashboard_doctor.php" class="active"><i class="fas fa-th-large"></i> Dashboard</a>
             <a href="appointments.php"><i class="fas fa-calendar-alt"></i> My Schedule</a>
             <a href="patients.php"><i class="fas fa-users"></i> My Patients</a>
+            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
             <div class="dash-nav-divider"></div>
             <a href="profile_doctor.php"><i class="fas fa-user-md"></i> Edit Profile</a>
             <a href="logout.php" style="color:#e74c3c"><i class="fas fa-sign-out-alt"></i> Logout</a>
@@ -124,6 +128,7 @@ include 'header.php';
         </div>
 
         <div class="grid-2">
+            <!-- Action Required: Appointments -->
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title"><i class="fas fa-calendar-alt" style="color:var(--teal)"></i> Action Required</h2>
@@ -168,6 +173,7 @@ include 'header.php';
                 </div>
             </div>
 
+            <!-- Recent Transactions -->
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title"><i class="fas fa-receipt" style="color:var(--leaf)"></i> Recent Financials</h2>

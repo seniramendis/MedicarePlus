@@ -33,7 +33,7 @@ include 'header.php';
 ?>
 
 <div class="dash-layout">
-    <!-- Sidebar using your original CSS classes -->
+    <!-- Sidebar -->
     <aside class="dash-sidebar">
         <div class="dash-user">
             <div class="dash-avatar">
@@ -42,17 +42,20 @@ include 'header.php';
             <h4><?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h4>
             <span>Patient Portal</span>
         </div>
+
+        <!-- Updated Navigation with Secure Inbox -->
         <nav class="dash-nav">
             <a href="dashboard_patient.php" class="active"><i class="fas fa-home"></i> Dashboard Overview</a>
             <a href="book_appointment.php"><i class="fas fa-calendar-plus"></i> Book Appointment</a>
             <a href="medical_reports.php"><i class="fas fa-folder-open"></i> Medical Records</a>
+            <a href="chat_engine.php"><i class="fas fa-comments"></i> Secure Inbox</a>
             <div class="dash-nav-divider"></div>
             <a href="profile.php"><i class="fas fa-user-cog"></i> Profile Settings</a>
             <a href="logout.php" style="color: #dc3545;"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
         </nav>
     </aside>
 
-    <!-- Main Content using your original CSS classes -->
+    <!-- Main Content -->
     <main class="dash-main">
         <div class="dash-header">
             <div>
@@ -64,7 +67,6 @@ include 'header.php';
             </a>
         </div>
 
-        <!-- Stats using your original CSS classes -->
         <div class="stat-grid">
             <div class="stat-widget">
                 <div class="stat-icon teal"><i class="fas fa-calendar-check"></i></div>
@@ -89,7 +91,6 @@ include 'header.php';
             </div>
         </div>
 
-        <!-- Table using your original CSS classes -->
         <div class="card" style="margin-bottom: 30px;">
             <div class="card-header">
                 <h2 class="card-title">Upcoming Appointments</h2>
