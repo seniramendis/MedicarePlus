@@ -1,189 +1,171 @@
 <?php
-require_once 'auth.php';
+require_once 'functions.php';
 require_role('patient');
 
-$pageTitle = 'Patient Dashboard — Medicare Plus';
-$user      = get_logged_in_user();
-$patient   = fetch_patient_by_user_id($user['id']);
+$user = get_logged_in_user();
+$patient = fetch_patient_by_user_id($user['id']);
 
-// Auto-create patient profile if missing
+// Auto-create patient profile if it doesn't exist
 if (!$patient) {
     create_patient_profile($user['id']);
     $patient = fetch_patient_by_user_id($user['id']);
 }
 
-// Fetch data using your new functions.php
-$allAppointments = fetch_appointments_for_patient($patient['id']);
-$upcomingAppointments = [];
-$completedAppointments = [];
-
-foreach ($allAppointments as $appt) {
-    if ($appt['status'] === 'completed') {
-        $completedAppointments[] = $appt;
-    } else {
-        $upcomingAppointments[] = $appt;
-    }
-}
-
-// Notifications logic instead of old messaging system
+// Fetch data using your functions
+$appointments = fetch_appointments_for_patient($patient['id']);
 $unreadCount = get_unread_count($user['id']);
 $notifications = fetch_notifications($user['id'], 5);
 
 include 'header.php';
 ?>
 
-<div class="dash-layout">
-    <aside class="dash-sidebar">
-        <div class="dash-user">
-            <div class="dash-avatar">
-                <?= strtoupper(substr($user['first_name'], 0, 1) . substr($user['last_name'], 0, 1)) ?>
-            </div>
-            <h4><?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h4>
-            <span>Patient</span>
-        </div>
-        <nav class="dash-nav">
-            <a href="dashboard_patient.php" class="active"><i class="fas fa-th-large"></i> Dashboard</a>
-            <a href="book_appointment.php"><i class="fas fa-calendar-plus"></i> Book Appointment</a>
-            <a href="medical_reports.php"><i class="fas fa-file-medical"></i> Medical Records</a>
-            <div class="dash-nav-divider"></div>
-            <a href="profile.php"><i class="fas fa-user-cog"></i> Profile Settings</a>
-            <a href="logout.php" style="color:#e74c3c"><i class="fas fa-sign-out-alt"></i> Logout</a>
-        </nav>
-    </aside>
+<!-- Fresh Clinical UI Styles -->
+<style>
+    .clinical-portal {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
 
-    <main class="dash-main">
-        <div class="dash-header">
-            <div>
-                <h1>Welcome back, <?= htmlspecialchars($user['first_name']) ?>! 👋</h1>
-                <p>Manage your appointments, medical records, and notifications from one secure place.</p>
-            </div>
-            <a href="book_appointment.php" class="btn btn-primary">
-                <i class="fas fa-plus"></i> New Appointment
-            </a>
-        </div>
+    .portal-header {
+        border-bottom: 2px solid #0056b3;
+        padding-bottom: 1rem;
+        margin-bottom: 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
 
-        <div class="stat-grid">
-            <div class="stat-widget">
-                <div class="stat-icon teal"><i class="fas fa-calendar-check"></i></div>
-                <div class="stat-info">
-                    <strong><?= count($upcomingAppointments) ?></strong>
-                    <span>Upcoming</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon amber"><i class="fas fa-bell"></i></div>
-                <div class="stat-info">
-                    <strong><?= $unreadCount ?></strong>
-                    <span>Unread Alerts</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon green"><i class="fas fa-file-medical"></i></div>
-                <div class="stat-info">
-                    <strong style="font-size: 1.2rem;"><a href="medical_reports.php" style="color: inherit;">View</a></strong>
-                    <span>Medical Reports</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon red"><i class="fas fa-history"></i></div>
-                <div class="stat-info">
-                    <strong><?= count($completedAppointments) ?></strong>
-                    <span>Past Visits</span>
-                </div>
-            </div>
-        </div>
+    .portal-header h1 {
+        color: #0056b3;
+        margin: 0;
+        font-size: 1.8rem;
+    }
 
-        <div class="card" style="margin-bottom: 24px;">
-            <div class="card-header">
-                <h2 class="card-title"><i class="fas fa-calendar-alt" style="color:var(--teal)"></i> Upcoming Appointments</h2>
-            </div>
-            <div class="table-wrap">
-                <?php if (empty($upcomingAppointments)): ?>
-                    <div class="empty-state">
-                        <i class="fas fa-calendar-plus"></i>
-                        <h3>No upcoming appointments</h3>
-                        <p>You haven't booked any future consultations yet.</p>
-                        <a href="book_appointment.php" class="btn btn-primary btn-sm">Book Now</a>
-                    </div>
-                <?php else: ?>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Doctor</th>
-                                <th>Specialty</th>
-                                <th>Date & Time</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach (array_slice($upcomingAppointments, 0, 5) as $app): ?>
-                                <tr>
-                                    <td><strong>Dr. <?= htmlspecialchars($app['doc_first'] . ' ' . $app['doc_last']) ?></strong></td>
-                                    <td><?= htmlspecialchars($app['specialization']) ?></td>
-                                    <td><?= format_date($app['appointment_dt']) ?></td>
-                                    <td><?= status_badge($app['status']) ?></td>
-                                    <td>
-                                        <?php if ($app['status'] === 'confirmed'): ?>
-                                            <a href="payment.php?id=<?= $app['id'] ?>" class="btn btn-primary btn-sm"><i class="fas fa-credit-card"></i> Pay Now</a>
-                                        <?php else: ?>
-                                            <span style="color:var(--muted);font-size:0.85rem">—</span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
-            </div>
-        </div>
+    .portal-grid {
+        display: grid;
+        grid-template-columns: 1fr 300px;
+        gap: 2rem;
+    }
 
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title"><i class="fas fa-check-circle" style="color:var(--leaf)"></i> Completed</h2>
+    .clinical-card {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 2rem;
+    }
+
+    .clinical-card-header {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-bottom: 1px solid #e0e0e0;
+        font-weight: bold;
+        color: #333;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .clinical-card-body {
+        padding: 1rem;
+    }
+
+    .clinical-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+    }
+
+    .clinical-table th,
+    .clinical-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #eee;
+    }
+
+    .clinical-table th {
+        background: #f1f5f9;
+        color: #495057;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+
+    .btn-action {
+        background: #0056b3;
+        color: white;
+        padding: 0.5rem 1rem;
+        text-decoration: none;
+        border-radius: 3px;
+        font-size: 0.9rem;
+    }
+
+    .btn-action:hover {
+        background: #004494;
+    }
+
+    .btn-outline {
+        border: 1px solid #0056b3;
+        color: #0056b3;
+        padding: 0.5rem 1rem;
+        text-decoration: none;
+        border-radius: 3px;
+    }
+
+    .alert-box {
+        padding: 0.75rem;
+        background: #e2e3e5;
+        border-left: 4px solid #6c757d;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+    }
+</style>
+
+<div class="clinical-portal">
+    <div class="portal-header">
+        <div>
+            <h1>Patient Portal</h1>
+            <p style="color: #6c757d; margin-top: 0.5rem;">Welcome, <?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></p>
+        </div>
+        <div>
+            <a href="book_appointment.php" class="btn-action">+ Schedule Visit</a>
+        </div>
+    </div>
+
+    <div class="portal-grid">
+        <!-- Main Content Area -->
+        <div class="portal-main">
+            <div class="clinical-card">
+                <div class="clinical-card-header">
+                    <span>Active Appointments</span>
                 </div>
-                <div class="table-wrap">
-                    <?php if (empty($completedAppointments)): ?>
-                        <p style="color:var(--muted); font-size:0.9rem; padding: 10px;">No past appointments.</p>
+                <div class="clinical-card-body" style="padding: 0;">
+                    <?php if (empty($appointments)): ?>
+                        <p style="padding: 1rem; color: #666;">No appointments on record.</p>
                     <?php else: ?>
-                        <table>
+                        <table class="clinical-table">
                             <thead>
                                 <tr>
-                                    <th>Doctor</th>
-                                    <th>Date</th>
+                                    <th>Provider</th>
+                                    <th>Date/Time</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach (array_slice($completedAppointments, 0, 4) as $app): ?>
+                                <?php foreach ($appointments as $app): ?>
                                     <tr>
-                                        <td><strong>Dr. <?= htmlspecialchars($app['doc_last']) ?></strong></td>
-                                        <td><?= format_date($app['appointment_dt']) ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title"><i class="fas fa-bell" style="color:var(--accent-dark)"></i> Recent Alerts</h2>
-                </div>
-                <div class="table-wrap">
-                    <?php if (empty($notifications)): ?>
-                        <p style="color:var(--muted); font-size:0.9rem; padding: 10px;">No new notifications.</p>
-                    <?php else: ?>
-                        <table>
-                            <tbody>
-                                <?php foreach ($notifications as $notif): ?>
-                                    <tr>
-                                        <td style="font-size:0.9rem; <?= $notif['is_read'] ? 'color:var(--muted);' : 'font-weight:600; color:var(--dark);' ?>">
-                                            <?= htmlspecialchars($notif['message']) ?>
+                                        <td>
+                                            <strong>Dr. <?= htmlspecialchars($app['doc_last']) ?></strong><br>
+                                            <small style="color:#666;"><?= htmlspecialchars($app['specialization']) ?></small>
                                         </td>
-                                        <td style="font-size:0.75rem; color:var(--muted); text-align:right;">
-                                            <?= date('M j', strtotime($notif['created_at'])) ?>
+                                        <td><?= format_date($app['appointment_dt']) ?></td>
+                                        <td><?= status_badge($app['status']) ?></td>
+                                        <td>
+                                            <?php if ($app['status'] === 'confirmed'): ?>
+                                                <a href="payment.php?id=<?= $app['id'] ?>" class="btn-outline">Pay Fee</a>
+                                            <?php elseif ($app['status'] === 'completed'): ?>
+                                                <a href="medical_reports.php?app_id=<?= $app['id'] ?>" style="color:#0056b3; text-decoration:none;">View Report</a>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -193,7 +175,41 @@ include 'header.php';
                 </div>
             </div>
         </div>
-    </main>
+
+        <!-- Sidebar Area -->
+        <div class="portal-side">
+            <div class="clinical-card">
+                <div class="clinical-card-header">
+                    <span>Notifications (<?= $unreadCount ?>)</span>
+                </div>
+                <div class="clinical-card-body">
+                    <?php if (empty($notifications)): ?>
+                        <p style="color:#666; font-size:0.9rem;">No new alerts.</p>
+                    <?php else: ?>
+                        <?php foreach ($notifications as $notif): ?>
+                            <div class="alert-box" style="<?= $notif['is_read'] ? 'opacity: 0.6;' : 'border-color: #0056b3; background: #e6f2ff;' ?>">
+                                <?= htmlspecialchars($notif['message']) ?>
+                                <div style="font-size: 0.75rem; color: #666; margin-top: 4px;">
+                                    <?= date('M d, Y', strtotime($notif['created_at'])) ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="clinical-card">
+                <div class="clinical-card-header">
+                    <span>Quick Links</span>
+                </div>
+                <div class="clinical-card-body" style="display:flex; flex-direction:column; gap:0.5rem;">
+                    <a href="medical_reports.php" style="color:#0056b3; text-decoration:none;">📂 My Medical Records</a>
+                    <a href="profile.php" style="color:#0056b3; text-decoration:none;">⚙️ Account Settings</a>
+                    <a href="logout.php" style="color:#dc3545; text-decoration:none;">🚪 Secure Logout</a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <?php include 'footer.php'; ?>

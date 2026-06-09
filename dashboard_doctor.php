@@ -1,5 +1,5 @@
 <?php
-require_once 'auth.php';
+require_once 'functions.php';
 require_role('doctor');
 
 $pageTitle = 'Doctor Dashboard — Medicare Plus';
@@ -7,21 +7,24 @@ $user      = get_logged_in_user();
 $doctor    = fetch_doctor_by_user_id($user['id']);
 
 if (!$doctor) {
-    header('Location: Home.php');
+    header('Location: profile_doctor.php');
     exit;
 }
 
-// Handle Appointment Acceptance
+$successMsg = '';
+
+// Handle Appointment Acceptance Logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['appointment_id'])) {
     if (csrf_verify($_POST['csrf_token'] ?? '')) {
         $appId = (int)$_POST['appointment_id'];
         if ($_POST['action'] === 'accept') {
             update_appointment_status($appId, 'confirmed');
-            $successMsg = 'Appointment accepted. The patient can now proceed to payment.';
+            $successMsg = 'Appointment confirmed. The patient can now proceed to payment.';
         }
     }
 }
 
+// Fetch Logic
 $appointments = fetch_appointments_for_doctor($doctor['id']);
 $upcoming = [];
 $completedCount = 0;
@@ -34,7 +37,7 @@ foreach ($appointments as $a) {
     }
 }
 
-// Calculate Revenue directly from Payments table
+// Calculate Revenue directly from Payments table (Advanced Logic)
 $conn = get_db_connection();
 $totalRevenue = 0;
 $transactions = [];
@@ -45,7 +48,7 @@ $stmt->execute();
 $res = $stmt->get_result();
 while ($row = $res->fetch_assoc()) {
     $totalRevenue += (float)$row['amount'];
-    if (count($transactions) < 5) $transactions[] = $row; // Keep top 5 for display
+    if (count($transactions) < 5) $transactions[] = $row;
 }
 $stmt->close();
 
@@ -77,59 +80,31 @@ include 'header.php';
         <div class="dash-header">
             <div>
                 <h1>Good day, Dr. <?= htmlspecialchars($user['last_name']) ?>! 🩺</h1>
-                <p>Review your schedule, patient alerts, and manage your practice profile below.</p>
+                <p>Review your schedule, recent transactions, and patient requests.</p>
             </div>
-            <a href="upload_report.php" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Report</a>
+            <a href="medical_reports.php" class="btn btn-primary"><i class="fas fa-upload"></i> Upload Report</a>
         </div>
 
-        <?php if (!empty($successMsg)): ?>
+        <?php if ($successMsg): ?>
             <div class="alert alert-success">
                 <i class="fas fa-check-circle" style="margin-top:2px;"></i>
                 <div><?= htmlspecialchars($successMsg) ?></div>
             </div>
         <?php endif; ?>
 
-        <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
-            <div class="stat-widget">
-                <div class="stat-icon teal"><i class="fas fa-stethoscope"></i></div>
-                <div class="stat-info">
-                    <strong style="font-size: 1.1rem; padding-top:4px;"><?= htmlspecialchars($doctor['specialization']) ?></strong>
-                    <span>Specialization</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon amber"><i class="fas fa-briefcase-medical"></i></div>
-                <div class="stat-info">
-                    <strong><?= (int)$doctor['experience_years'] ?> yrs</strong>
-                    <span>Experience</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon" style="background:rgba(13,115,119,.1); color:var(--teal-dark);"><i class="fas fa-tag"></i></div>
-                <div class="stat-info">
-                    <strong style="font-size: 1.2rem;">LKR <?= number_format($doctor['consultation_fee'], 0) ?></strong>
-                    <span>Fee</span>
-                </div>
-            </div>
-            <div class="stat-widget">
-                <div class="stat-icon" style="background:rgba(232,168,56,.12); color:var(--accent-dark);"><i class="fas fa-star"></i></div>
-                <div class="stat-info">
-                    <strong><?= number_format($doctor['rating'], 1) ?>/5</strong>
-                    <span>Rating</span>
-                </div>
-            </div>
+        <div class="stat-grid">
             <div class="stat-widget">
                 <div class="stat-icon red"><i class="fas fa-bell"></i></div>
                 <div class="stat-info">
                     <strong><?= $unreadCount ?></strong>
-                    <span>Unread Alerts</span>
+                    <span>Pending Alerts</span>
                 </div>
             </div>
             <div class="stat-widget">
                 <div class="stat-icon teal"><i class="fas fa-calendar-check"></i></div>
                 <div class="stat-info">
                     <strong><?= count($upcoming) ?></strong>
-                    <span>Upcoming</span>
+                    <span>Upcoming Visits</span>
                 </div>
             </div>
             <div class="stat-widget">
@@ -140,7 +115,7 @@ include 'header.php';
                 </div>
             </div>
             <div class="stat-widget">
-                <div class="stat-icon" style="background:rgba(232,168,56,.2); color:var(--accent-dark);"><i class="fas fa-coins"></i></div>
+                <div class="stat-icon amber"><i class="fas fa-coins"></i></div>
                 <div class="stat-info">
                     <strong style="font-size: 1.2rem;">LKR <?= number_format($totalRevenue, 0) ?></strong>
                     <span>Total Revenue</span>
@@ -157,7 +132,8 @@ include 'header.php';
                     <?php if (empty($upcoming)): ?>
                         <div class="empty-state">
                             <i class="fas fa-calendar-check"></i>
-                            <p>No upcoming appointments scheduled.</p>
+                            <h3>All clear!</h3>
+                            <p>No active appointment requests.</p>
                         </div>
                     <?php else: ?>
                         <table>
@@ -165,7 +141,6 @@ include 'header.php';
                                 <tr>
                                     <th>Patient</th>
                                     <th>Date & Time</th>
-                                    <th>Status</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -174,7 +149,6 @@ include 'header.php';
                                     <tr>
                                         <td><strong><?= htmlspecialchars($app['pat_first'] . ' ' . $app['pat_last']) ?></strong></td>
                                         <td style="white-space: nowrap;"><?= format_date($app['appointment_dt']) ?></td>
-                                        <td><?= status_badge($app['status']) ?></td>
                                         <td>
                                             <?php if ($app['status'] === 'pending'): ?>
                                                 <form method="POST" style="margin:0;">
@@ -183,7 +157,7 @@ include 'header.php';
                                                     <button type="submit" name="action" value="accept" class="btn btn-primary btn-sm"><i class="fas fa-check"></i> Accept</button>
                                                 </form>
                                             <?php else: ?>
-                                                <span style="font-size:0.8rem; color:var(--muted)">Processed</span>
+                                                <?= status_badge($app['status']) ?>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -196,12 +170,13 @@ include 'header.php';
 
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title"><i class="fas fa-receipt" style="color:var(--leaf)"></i> Recent Transactions</h2>
+                    <h2 class="card-title"><i class="fas fa-receipt" style="color:var(--leaf)"></i> Recent Financials</h2>
                 </div>
                 <div class="table-wrap">
                     <?php if (empty($transactions)): ?>
                         <div class="empty-state">
                             <i class="fas fa-coins"></i>
+                            <h3>No data</h3>
                             <p>No payment transactions yet.</p>
                         </div>
                     <?php else: ?>
